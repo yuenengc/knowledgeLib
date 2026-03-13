@@ -1,0 +1,33 @@
+﻿:root {
+  --bg-1: #f4efe7;
+  --bg-2: #f9f6f0;
+  --ink: #121212;
+  --muted: #5a5a5a;
+  --accent: #bb4b2a;
+  --accent-2: #1d5c63;
+  --card: #ffffff;
+  --shadow: 0 12px 30px rgba(23, 23, 23, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  font-family: "Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: radial-gradient(circle at top left, #ffffff 0%, var(--bg-1) 45%, var(--bg-2) 100%);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+main {
+  min-height: 100vh;
+  padding: 48px 24px 80px;
+}
