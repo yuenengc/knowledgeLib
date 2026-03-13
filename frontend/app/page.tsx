@@ -16,7 +16,7 @@ import {
   Typography,
 } from "@mui/material";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+const API_BASE = process.env.KNOWLEDGE_LIB_API_BASE || "http://localhost:8000";
 
 type TabPanelProps = {
   value: number;
@@ -59,6 +59,7 @@ export default function Home() {
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [answer, setAnswer] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
@@ -125,6 +126,7 @@ export default function Home() {
   const handleSearch = async () => {
     setSearchError(null);
     setResults([]);
+    setAnswer("");
 
     if (!query.trim()) {
       setSearchError("请输入检索词");
@@ -148,6 +150,7 @@ export default function Home() {
 
       const data = await res.json();
       setResults(data.results || []);
+      setAnswer(data.answer || "");
     } catch (err) {
       if (err instanceof Error) {
         setSearchError(err.message || "检索失败");
@@ -253,7 +256,19 @@ export default function Home() {
               {searchError && <Alert severity="error">{searchError}</Alert>}
 
               <Stack spacing={2}>
-                {results.length === 0 && !searching && !searchError && (
+                {answer && (
+                  <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, background: "#fff9f2" }}>
+                    <Stack spacing={1}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                        参考答案
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" whiteSpace="pre-wrap">
+                        {answer}
+                      </Typography>
+                    </Stack>
+                  </Paper>
+                )}
+                {results.length === 0 && !searching && !searchError && !answer && (
                   <Typography color="text.secondary">输入关键词开始检索。</Typography>
                 )}
                 {results.map((item, index) => (

@@ -8,9 +8,9 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from .db import init_db, add_file, list_files
+from .db import init_db, add_file, list_files, add_nodes
 from .graph import run_search
-from .indexer import get_index, insert_documents, load_documents
+from .indexer import build_nodes, get_index, insert_nodes, load_documents
 from .settings import UPLOAD_DIR, configure_llm
 
 ALLOWED_EXTS = {".pdf", ".docx"}
@@ -74,7 +74,25 @@ async def upload(file: UploadFile = File(...)) -> dict:
                 detail="Document has no extractable text (encrypted or scanned). Please upload a decrypted or text-based file.",
             )
         index = get_index()
-        insert_documents(index, docs)
+        nodes = build_nodes(docs)
+        if not nodes:
+            raise HTTPException(
+                status_code=400,
+                detail="Document produced no text chunks. Please upload a text-based file.",
+            )
+        insert_nodes(index, nodes)
+        add_nodes(
+            [
+                {
+                    "id": node.node_id,
+                    "file_id": metadata["file_id"],
+                    "file_name": metadata["file_name"],
+                    "stored_path": metadata["stored_path"],
+                    "text": node.get_content(),
+                }
+                for node in nodes
+            ]
+        )
     except HTTPException:
         if stored_path.exists():
             stored_path.unlink(missing_ok=True)
@@ -96,5 +114,5 @@ async def search(request: SearchRequest) -> dict:
         raise HTTPException(status_code=400, detail="Query is required")
 
     index = get_index()
-    results = run_search(index, query, request.top_k)
-    return {"query": request.query, "results": results}
+    payload = run_search(index, query, request.top_k)
+    return {"query": request.query, "answer": payload.get("answer", ""), "results": payload.get("results", [])}

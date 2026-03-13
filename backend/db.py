@@ -22,6 +22,17 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS nodes (
+                id TEXT PRIMARY KEY,
+                file_id TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                stored_path TEXT NOT NULL,
+                text TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
 
 
@@ -47,6 +58,46 @@ def list_files() -> list[dict]:
             "filename": row[1],
             "stored_path": row[2],
             "uploaded_at": row[3],
+        }
+        for row in rows
+    ]
+
+
+def add_nodes(nodes: list[dict]) -> None:
+    if not nodes:
+        return
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.executemany(
+            """
+            INSERT OR REPLACE INTO nodes (id, file_id, file_name, stored_path, text)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    node["id"],
+                    node["file_id"],
+                    node["file_name"],
+                    node["stored_path"],
+                    node["text"],
+                )
+                for node in nodes
+            ],
+        )
+        conn.commit()
+
+
+def list_nodes() -> list[dict]:
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute(
+            "SELECT id, file_id, file_name, stored_path, text FROM nodes"
+        ).fetchall()
+    return [
+        {
+            "id": row[0],
+            "file_id": row[1],
+            "file_name": row[2],
+            "stored_path": row[3],
+            "text": row[4],
         }
         for row in rows
     ]

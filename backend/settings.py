@@ -58,9 +58,9 @@ def configure_llm() -> None:
 
 
 ROOT_DIR = Path(__file__).resolve().parent
-DATA_DIR = ROOT_DIR / "data"
-UPLOAD_DIR = DATA_DIR / "uploads"
-CHROMA_DIR = ROOT_DIR / "chroma_db"
+DATA_DIR = Path(_env("DATA_DIR", str(ROOT_DIR / "data")))
+UPLOAD_DIR = Path(_env("UPLOAD_DIR", str(DATA_DIR / "uploads")))
+CHROMA_DIR = Path(_env("CHROMA_DIR", str(ROOT_DIR / "chroma_db")))
 
 
 for _path in (DATA_DIR, UPLOAD_DIR, CHROMA_DIR):
