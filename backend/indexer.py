@@ -6,7 +6,7 @@ from typing import Iterable
 import chromadb
 from llama_index.core import SimpleDirectoryReader, VectorStoreIndex
 from llama_index.core.node_parser import SentenceSplitter
-from llama_index.readers.file import DocxReader, PDFReader
+from llama_index.readers.file import DocxReader, PyMuPDFReader
 from llama_index.vector_stores.chroma import ChromaVectorStore
 
 from .settings import CHROMA_DIR
@@ -33,7 +33,7 @@ def get_index() -> VectorStoreIndex:
 
 def load_documents(file_path: Path, metadata: dict) -> list:
     file_extractor = {
-        ".pdf": PDFReader(),
+        ".pdf": PyMuPDFReader(),
         ".docx": DocxReader(),
     }
 
@@ -49,7 +49,7 @@ def load_documents(file_path: Path, metadata: dict) -> list:
     return docs
 
 
-def build_nodes(docs: Iterable, chunk_size: int = 512, chunk_overlap: int = 80) -> list:
+def build_nodes(docs: Iterable, chunk_size: int = 500, chunk_overlap: int = 120) -> list:
     splitter = SentenceSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,

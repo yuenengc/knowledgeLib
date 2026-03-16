@@ -79,9 +79,9 @@ Recommended deployment:
 - Backend on Render (persistent disk for Chroma)
 - Frontend on Vercel
 
-### Render (Backend)
+### Render (Backend, Docker)
 
-This repo includes a `render.yaml` blueprint. On Render:
+This repo includes a Docker-based `render.yaml` blueprint. On Render:
 1. Create a new Blueprint deployment.
 2. Select this repository.
 3. Set `DEEPSEEK_API_KEY` as a secret environment variable.

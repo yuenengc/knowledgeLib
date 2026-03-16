@@ -44,6 +44,45 @@ def build_search_graph(index: VectorStoreIndex):
             bm25_cache["count"] = len(nodes)
         return bm25_cache["bm25"], bm25_cache["nodes"], bm25_cache["tokenized"]
 
+    def _merge_results(items: List[dict], max_per_file: int = 3, max_chars: int = 1200) -> List[dict]:
+        seen = set()
+        grouped: Dict[str, dict] = {}
+
+        for item in items:
+            text = (item.get("text") or "").strip()
+            if not text:
+                continue
+            key = (item.get("file_id") or "") + "|" + text[:200]
+            if key in seen:
+                continue
+            seen.add(key)
+
+            file_id = item.get("file_id") or "unknown"
+            entry = grouped.get(file_id)
+            if entry is None:
+                grouped[file_id] = {
+                    "score": item.get("score", 0.0),
+                    "text": text,
+                    "file_name": item.get("file_name"),
+                    "file_id": file_id,
+                    "source_path": item.get("source_path"),
+                    "_count": 1,
+                }
+            else:
+                if entry["_count"] >= max_per_file:
+                    continue
+                candidate = entry["text"] + "\n\n" + text
+                if len(candidate) > max_chars:
+                    continue
+                entry["text"] = candidate
+                entry["_count"] += 1
+                entry["score"] = max(entry["score"], item.get("score", 0.0))
+
+        merged = list(grouped.values())
+        for m in merged:
+            m.pop("_count", None)
+        return sorted(merged, key=lambda x: x["score"], reverse=True)
+
     def retrieve(state: SearchState) -> dict:
         top_k = state["top_k"]
         query = state["query"]
@@ -92,8 +131,9 @@ def build_search_graph(index: VectorStoreIndex):
             )
             item["score"] += 1.0 / (rrf_k + rank)
 
-        results = sorted(fused.values(), key=lambda x: x["score"], reverse=True)[:top_k]
-        return {"results": results}
+        results = sorted(fused.values(), key=lambda x: x["score"], reverse=True)[: max(top_k * 2, 6)]
+        merged = _merge_results(results)
+        return {"results": merged[:top_k]}
 
     def generate_answer(state: SearchState) -> dict:
         results = state["results"]
@@ -109,7 +149,7 @@ def build_search_graph(index: VectorStoreIndex):
 
         system = (
             "你是企业知识库助手。仅使用提供的资料回答问题。"
-            "如无法从资料得出答案，请明确说明。回答必须标注引用来源，如[1][2]。"
+            "如无法从资料得出答案，回答未找到相关信息。回答必须标注引用来源，如[1][2]。"
         )
         user = "问题：{query}\n\n资料：\n{sources}\n\n请给出答案并标注引用。".format(
             query=state["query"],
@@ -117,6 +157,8 @@ def build_search_graph(index: VectorStoreIndex):
         )
 
         llm = Settings.llm
+        if llm is None:
+            return {"answer": ""}
         try:
             resp = llm.chat(
                 [
@@ -126,7 +168,8 @@ def build_search_graph(index: VectorStoreIndex):
             )
             content = getattr(resp, "message", None)
             answer_text = content.content if content is not None else str(resp)
-        except Exception:
+        except Exception as exc:
+            print(f"[answer] LLM failed: {exc}")
             answer_text = ""
 
         return {"answer": answer_text}

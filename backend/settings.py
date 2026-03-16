@@ -8,7 +8,6 @@ import httpx
 from llama_index.core import Settings
 from llama_index.llms.openai import OpenAI
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from transformers import AutoModel, AutoTokenizer
 
 
 def _env(name: str, default: str | None = None) -> str | None:
@@ -26,6 +25,9 @@ def configure_llm() -> None:
     model = _env("DEEPSEEK_MODEL", "deepseek-chat")
     embed_model = _env("HF_EMBED_MODEL", "BAAI/bge-small-zh-v1.5")
 
+    # Always set local embedding model, even if LLM is not configured.
+    Settings.embed_model = HuggingFaceEmbedding(model_name=embed_model)
+
     if not api_key:
         return
 
@@ -33,6 +35,7 @@ def configure_llm() -> None:
     # Use hard assignment to avoid stale system env overriding .env.
     os.environ["OPENAI_API_KEY"] = api_key
     os.environ["OPENAI_API_BASE"] = api_base
+    os.environ["OPENAI_BASE_URL"] = api_base
 
     def _log_request(request: httpx.Request) -> None:
         print(f"[openai] {request.method} {request.url}")
@@ -47,14 +50,7 @@ def configure_llm() -> None:
         http_client=http_client,
     )
 
-    hf_model = AutoModel.from_pretrained(embed_model)
-    hf_tokenizer = AutoTokenizer.from_pretrained(embed_model)
-    Settings.embed_model = HuggingFaceEmbedding(
-        model_name=embed_model,
-        tokenizer_name=embed_model,
-        model=hf_model,
-        tokenizer=hf_tokenizer,
-    )
+    # LLM is optional; embeddings already configured above.
 
 
 ROOT_DIR = Path(__file__).resolve().parent
