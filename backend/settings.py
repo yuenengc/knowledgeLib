@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 import httpx
 from llama_index.core import Settings
 from llama_index.llms.openai import OpenAI
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.embeddings.fastembed import FastEmbedEmbedding
 
 
 def _env(name: str, default: str | None = None) -> str | None:
@@ -26,7 +26,7 @@ def configure_llm() -> None:
     embed_model = _env("HF_EMBED_MODEL", "BAAI/bge-small-zh-v1.5")
 
     # Always set local embedding model, even if LLM is not configured.
-    Settings.embed_model = HuggingFaceEmbedding(model_name=embed_model)
+    Settings.embed_model = FastEmbedEmbedding(model_name=embed_model)
 
     if not api_key:
         return

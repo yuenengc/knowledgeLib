@@ -35,7 +35,6 @@ class SearchRequest(BaseModel):
 async def startup() -> None:
     init_db()
     configure_llm()
-    get_index()
 
 
 @app.get("/health")
@@ -50,6 +49,7 @@ async def files() -> dict:
 
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)) -> dict:
+    configure_llm()
     ext = Path(file.filename).suffix.lower()
     if ext not in ALLOWED_EXTS:
         raise HTTPException(status_code=400, detail="Unsupported file type")
@@ -113,6 +113,7 @@ async def search(request: SearchRequest) -> dict:
     if not query:
         raise HTTPException(status_code=400, detail="Query is required")
 
+    configure_llm()
     index = get_index()
     payload = run_search(index, query, request.top_k)
     return {"query": request.query, "answer": payload.get("answer", ""), "results": payload.get("results", [])}

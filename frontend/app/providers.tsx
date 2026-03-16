@@ -8,18 +8,22 @@ const theme = createTheme({
   palette: {
     mode: "light",
     primary: {
-      main: "#bb4b2a",
+      main: "#3b82f6",
     },
     secondary: {
-      main: "#1d5c63",
+      main: "#06b6d4",
     },
     background: {
-      default: "#f4efe7",
+      default: "#f6f7f9",
       paper: "#ffffff",
+    },
+    text: {
+      primary: "#0f1114",
+      secondary: "#60646b",
     },
   },
   typography: {
-    fontFamily: '"Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif',
+    fontFamily: '"SF Pro Display", "SF Pro Text", "Helvetica Neue", "Segoe UI", sans-serif',
     h4: {
       fontWeight: 600,
       letterSpacing: "-0.02em",
@@ -27,9 +31,37 @@ const theme = createTheme({
     h6: {
       fontWeight: 600,
     },
+    body2: {
+      lineHeight: 1.6,
+    },
   },
   shape: {
-    borderRadius: 16,
+    borderRadius: 12,
+  },
+  components: {
+    MuiPaper: {
+      styleOverrides: {
+        root: {
+          border: "1px solid rgba(15, 17, 20, 0.08)",
+        },
+      },
+    },
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          textTransform: "none",
+          borderRadius: 10,
+          boxShadow: "none",
+        },
+      },
+    },
+    MuiChip: {
+      styleOverrides: {
+        root: {
+          borderRadius: 8,
+        },
+      },
+    },
   },
 });
 
