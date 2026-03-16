@@ -16,7 +16,7 @@ import {
   Typography,
 } from "@mui/material";
 
-const API_BASE = process.env.KNOWLEDGE_LIB_API_BASE || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_KNOWLEDGE_LIB_API_BASE || "https://knowledgelib.onrender.com";
 
 type TabPanelProps = {
   value: number;
@@ -38,6 +38,29 @@ type SearchResult = {
   file_id?: string;
   source_path?: string;
 };
+
+function formatResultText(text: string) {
+  const flattened = text.replace(/\r\n/g, "\n").replace(/\n+/g, " ");
+  const deDotted = flattened
+    .replace(/[.·•]{5,}/g, " ")
+    .replace(/\s{2,}/g, " ");
+  const normalized = deDotted.replace(/([。！？；])\s*/g, "$1\n\n").trim();
+  if (/\d+\.\s+/.test(normalized)) {
+    return { title: "", body: normalized };
+  }
+  const lines = normalized
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .filter((line) => !/^\d+(\.\d+)*\.?$/.test(line));
+  const title = lines.shift() || "";
+  const body = lines.join("\n");
+  return { title, body };
+}
+
+function isTableText(text: string) {
+  return /\|.+\|/.test(text) && /\n\|?[-: ]+\|/.test(text);
+}
 
 function TabPanel({ value, index, children }: TabPanelProps) {
   if (value !== index) return null;
@@ -65,7 +88,7 @@ export default function Home() {
 
   const headerGradient = useMemo(
     () =>
-      "linear-gradient(120deg, rgba(187,75,42,0.15), rgba(29,92,99,0.12) 55%, rgba(255,255,255,0.6))",
+      "linear-gradient(120deg, rgba(59,130,246,0.12), rgba(6,182,212,0.08) 55%, rgba(255,255,255,0.8))",
     []
   );
 
@@ -165,7 +188,16 @@ export default function Home() {
   return (
     <main>
       <Container maxWidth="lg">
-        <Paper elevation={0} sx={{ p: 4, background: headerGradient, borderRadius: 4, boxShadow: "var(--shadow)" }}>
+        <Paper
+          elevation={0}
+          sx={{
+            p: 4,
+            background: headerGradient,
+            borderRadius: 4,
+            boxShadow: "none",
+            backdropFilter: "blur(6px)",
+          }}
+        >
           <Stack spacing={1.5}>
             <Typography variant="h4">企业知识库</Typography>
             <Typography color="text.secondary">
@@ -181,7 +213,7 @@ export default function Home() {
           </Stack>
         </Paper>
 
-        <Paper elevation={0} sx={{ mt: 4, p: 3, borderRadius: 4, boxShadow: "var(--shadow)" }}>
+        <Paper elevation={0} sx={{ mt: 4, p: 3, borderRadius: 4, boxShadow: "none" }}>
           <Tabs value={tab} onChange={(_, value) => setTab(value)} textColor="primary">
             <Tab label="文档上传" />
             <Tab label="知识检索" />
@@ -257,7 +289,7 @@ export default function Home() {
 
               <Stack spacing={2}>
                 {answer && (
-                  <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, background: "#fff9f2" }}>
+                  <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, background: "rgba(59,130,246,0.06)" }}>
                     <Stack spacing={1}>
                       <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                         参考答案
@@ -272,7 +304,11 @@ export default function Home() {
                   <Typography color="text.secondary">输入关键词开始检索。</Typography>
                 )}
                 {results.map((item, index) => (
-                  <Paper key={`${item.file_id ?? "unknown"}-${index}`} variant="outlined" sx={{ p: 2.5, borderRadius: 3 }}>
+                  <Paper
+                    key={`${item.file_id ?? "unknown"}-${index}`}
+                    variant="outlined"
+                    sx={{ p: 2.5, borderRadius: 3, background: "rgba(255,255,255,0.7)" }}
+                  >
                     <Stack spacing={1.2}>
                       <Stack direction={{ xs: "column", md: "row" }} spacing={1} alignItems={{ md: "center" }}>
                         <Typography variant="subtitle1" sx={{ flex: 1, fontWeight: 600 }}>
@@ -282,9 +318,28 @@ export default function Home() {
                           <Chip label={`Score ${item.score.toFixed(4)}`} size="small" />
                         )}
                       </Stack>
-                      <Typography variant="body2" color="text.secondary">
-                        {item.text}
-                      </Typography>
+                      {isTableText(item.text || "") ? (
+                        <Typography
+                          variant="body2"
+                          color="text.secondary"
+                          component="pre"
+                          sx={{ whiteSpace: "pre-wrap", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+                        >
+                          {item.text?.trim()}
+                        </Typography>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary" whiteSpace="pre-wrap" lineHeight={1.7}>
+                          {(() => {
+                            const { title, body } = formatResultText(item.text || "");
+                            return (
+                              <>
+                                {title && <strong>{title}</strong>}
+                                {body ? `\n\n${body}` : ""}
+                              </>
+                            );
+                          })()}
+                        </Typography>
+                      )}
                       {item.source_path && (
                         <Typography variant="caption" color="text.secondary">
                           来源文件: {item.source_path}

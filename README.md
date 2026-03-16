@@ -98,7 +98,7 @@ Environment variables used by the backend:
 
 1. Import the repo in Vercel.
 2. Set the Root Directory to `frontend`.
-3. Add environment variable `KNOWLEDGE_LIB_API_BASE` pointing to your Render backend URL.
+3. Add environment variable `NEXT_PUBLIC_KNOWLEDGE_LIB_API_BASE` pointing to your Render backend URL.
 4. Deploy.
 
 ## Notes
