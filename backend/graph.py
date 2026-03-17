@@ -44,11 +44,18 @@ def build_search_graph(index: VectorStoreIndex):
             bm25_cache["count"] = len(nodes)
         return bm25_cache["bm25"], bm25_cache["nodes"], bm25_cache["tokenized"]
 
-    def _merge_results(items: List[dict], max_per_file: int = 3, max_chars: int = 1200) -> List[dict]:
+    def _merge_results(
+        items: List[dict],
+        max_per_file: int = 3,
+        max_chars: int = 1800,
+        min_score: float = 0.01,
+    ) -> List[dict]:
         seen = set()
         grouped: Dict[str, dict] = {}
 
         for item in items:
+            if (item.get("score") or 0.0) < min_score:
+                continue
             text = (item.get("text") or "").strip()
             if not text:
                 continue
@@ -62,25 +69,53 @@ def build_search_graph(index: VectorStoreIndex):
             if entry is None:
                 grouped[file_id] = {
                     "score": item.get("score", 0.0),
-                    "text": text,
                     "file_name": item.get("file_name"),
                     "file_id": file_id,
                     "source_path": item.get("source_path"),
-                    "_count": 1,
+                    "_items": [
+                        {
+                            "text": text,
+                            "order_idx": item.get("order_idx"),
+                            "score": item.get("score", 0.0),
+                        }
+                    ],
                 }
             else:
-                if entry["_count"] >= max_per_file:
+                if len(entry["_items"]) >= max_per_file:
                     continue
-                candidate = entry["text"] + "\n\n" + text
-                if len(candidate) > max_chars:
-                    continue
-                entry["text"] = candidate
-                entry["_count"] += 1
+                entry["_items"].append(
+                    {
+                        "text": text,
+                        "order_idx": item.get("order_idx"),
+                        "score": item.get("score", 0.0),
+                    }
+                )
                 entry["score"] = max(entry["score"], item.get("score", 0.0))
 
-        merged = list(grouped.values())
-        for m in merged:
-            m.pop("_count", None)
+        merged = []
+        for entry in grouped.values():
+            items_sorted = sorted(
+                entry["_items"],
+                key=lambda x: (x["order_idx"] is None, x["order_idx"] or 0),
+            )
+            merged_text = ""
+            for it in items_sorted:
+                candidate = (merged_text + "\n\n" + it["text"]).strip()
+                if not merged_text:
+                    candidate = it["text"]
+                if len(candidate) > max_chars:
+                    break
+                merged_text = candidate
+            merged.append(
+                {
+                    "score": entry["score"],
+                    "text": merged_text,
+                    "file_name": entry.get("file_name"),
+                    "file_id": entry.get("file_id"),
+                    "source_path": entry.get("source_path"),
+                }
+            )
+
         return sorted(merged, key=lambda x: x["score"], reverse=True)
 
     def retrieve(state: SearchState) -> dict:
@@ -112,6 +147,7 @@ def build_search_graph(index: VectorStoreIndex):
                     "file_name": metadata.get("file_name"),
                     "file_id": metadata.get("file_id"),
                     "source_path": metadata.get("stored_path"),
+                    "order_idx": metadata.get("order_idx"),
                 },
             )
             item["score"] += 1.0 / (rrf_k + rank)
@@ -127,6 +163,7 @@ def build_search_graph(index: VectorStoreIndex):
                     "file_name": n["file_name"],
                     "file_id": n["file_id"],
                     "source_path": n["stored_path"],
+                    "order_idx": n.get("order_idx"),
                 },
             )
             item["score"] += 1.0 / (rrf_k + rank)

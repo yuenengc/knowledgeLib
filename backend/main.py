@@ -12,16 +12,21 @@ from .db import init_db, add_file, list_files, add_nodes
 from .graph import run_search
 from .indexer import build_nodes, get_index, insert_nodes, load_documents
 from .settings import UPLOAD_DIR, configure_llm
+import os
+import asyncio
 
 ALLOWED_EXTS = {".pdf", ".docx"}
 
 app = FastAPI(title="Enterprise Knowledge Base")
 
+_cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
+allow_origins = [o.strip() for o in _cors_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=allow_origins,
     allow_credentials=True,
-    allow_methods=["*"] ,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -31,10 +36,20 @@ class SearchRequest(BaseModel):
     top_k: int = 5
 
 
-@app.on_event("startup")
-async def startup() -> None:
-    init_db()
-    configure_llm()
+_init_lock = asyncio.Lock()
+_initialized = False
+
+
+async def ensure_initialized() -> None:
+    global _initialized
+    if _initialized:
+        return
+    async with _init_lock:
+        if _initialized:
+            return
+        init_db()
+        configure_llm()
+        _initialized = True
 
 
 @app.get("/health")
@@ -44,12 +59,13 @@ async def health() -> dict:
 
 @app.get("/files")
 async def files() -> dict:
+    await ensure_initialized()
     return {"files": list_files()}
 
 
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)) -> dict:
-    configure_llm()
+    await ensure_initialized()
     ext = Path(file.filename).suffix.lower()
     if ext not in ALLOWED_EXTS:
         raise HTTPException(status_code=400, detail="Unsupported file type")
@@ -89,6 +105,7 @@ async def upload(file: UploadFile = File(...)) -> dict:
                     "file_name": metadata["file_name"],
                     "stored_path": metadata["stored_path"],
                     "text": node.get_content(),
+                    "order_idx": node.metadata.get("order_idx"),
                 }
                 for node in nodes
             ]
@@ -113,7 +130,7 @@ async def search(request: SearchRequest) -> dict:
     if not query:
         raise HTTPException(status_code=400, detail="Query is required")
 
-    configure_llm()
+    await ensure_initialized()
     index = get_index()
     payload = run_search(index, query, request.top_k)
     return {"query": request.query, "answer": payload.get("answer", ""), "results": payload.get("results", [])}

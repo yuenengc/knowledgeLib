@@ -3,8 +3,13 @@
 from pathlib import Path
 from typing import Iterable
 
+try:
+    import camelot
+except Exception:
+    camelot = None
+
 import chromadb
-from llama_index.core import SimpleDirectoryReader, VectorStoreIndex
+from llama_index.core import Document, SimpleDirectoryReader, VectorStoreIndex
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.readers.file import DocxReader, PyMuPDFReader
 from llama_index.vector_stores.chroma import ChromaVectorStore
@@ -31,6 +36,27 @@ def get_index() -> VectorStoreIndex:
     return _index
 
 
+def _extract_pdf_tables(file_path: Path) -> list[str]:
+    if camelot is None:
+        return []
+    try:
+        tables = camelot.read_pdf(str(file_path), pages="all", flavor="lattice")
+    except Exception:
+        try:
+            tables = camelot.read_pdf(str(file_path), pages="all", flavor="stream")
+        except Exception:
+            return []
+
+    markdown_tables: list[str] = []
+    for i, table in enumerate(tables):
+        df = table.df
+        if df is None or df.empty:
+            continue
+        md = df.to_markdown(index=False)
+        markdown_tables.append(f"表格 {i + 1}:\n{md}")
+    return markdown_tables
+
+
 def load_documents(file_path: Path, metadata: dict) -> list:
     file_extractor = {
         ".pdf": PyMuPDFReader(),
@@ -44,19 +70,28 @@ def load_documents(file_path: Path, metadata: dict) -> list:
     )
 
     docs = reader.load_data()
+    if file_path.suffix.lower() == ".pdf":
+        table_texts = _extract_pdf_tables(file_path)
+        if table_texts:
+            for idx, text in enumerate(table_texts, start=1):
+                extra = Document(text=text, metadata={**metadata, "table": True, "table_index": idx})
+                docs.append(extra)
     for doc in docs:
         doc.metadata.update(metadata)
     return docs
 
 
-def build_nodes(docs: Iterable, chunk_size: int = 500, chunk_overlap: int = 120) -> list:
+def build_nodes(docs: Iterable, chunk_size: int = 2000, chunk_overlap: int = 300) -> list:
     splitter = SentenceSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         include_metadata=True,
         include_prev_next_rel=True,
     )
-    return splitter.get_nodes_from_documents(list(docs))
+    nodes = splitter.get_nodes_from_documents(list(docs))
+    for idx, node in enumerate(nodes):
+        node.metadata["order_idx"] = idx
+    return nodes
 
 
 def insert_nodes(index: VectorStoreIndex, nodes: Iterable) -> None:

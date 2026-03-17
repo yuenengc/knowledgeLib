@@ -5,6 +5,8 @@
     plan: starter
     dockerContext: .
     envVars:
+      - key: PORT
+        value: 10000
       - key: DEEPSEEK_API_KEY
         sync: false
       - key: DEEPSEEK_API_BASE

@@ -29,10 +29,16 @@ def init_db() -> None:
                 file_id TEXT NOT NULL,
                 file_name TEXT NOT NULL,
                 stored_path TEXT NOT NULL,
-                text TEXT NOT NULL
+                text TEXT NOT NULL,
+                order_idx INTEGER
             )
             """
         )
+        # Backfill schema if older DB exists.
+        try:
+            conn.execute("ALTER TABLE nodes ADD COLUMN order_idx INTEGER")
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
 
@@ -69,8 +75,8 @@ def add_nodes(nodes: list[dict]) -> None:
     with sqlite3.connect(DB_PATH) as conn:
         conn.executemany(
             """
-            INSERT OR REPLACE INTO nodes (id, file_id, file_name, stored_path, text)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO nodes (id, file_id, file_name, stored_path, text, order_idx)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -79,6 +85,7 @@ def add_nodes(nodes: list[dict]) -> None:
                     node["file_name"],
                     node["stored_path"],
                     node["text"],
+                    node.get("order_idx"),
                 )
                 for node in nodes
             ],
@@ -89,7 +96,7 @@ def add_nodes(nodes: list[dict]) -> None:
 def list_nodes() -> list[dict]:
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
-            "SELECT id, file_id, file_name, stored_path, text FROM nodes"
+            "SELECT id, file_id, file_name, stored_path, text, order_idx FROM nodes"
         ).fetchall()
     return [
         {
@@ -98,6 +105,7 @@ def list_nodes() -> list[dict]:
             "file_name": row[2],
             "stored_path": row[3],
             "text": row[4],
+            "order_idx": row[5],
         }
         for row in rows
     ]

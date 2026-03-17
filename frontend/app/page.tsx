@@ -16,7 +16,7 @@ import {
   Typography,
 } from "@mui/material";
 
-const API_BASE = process.env.NEXT_PUBLIC_KNOWLEDGE_LIB_API_BASE || "https://knowledgelib.onrender.com";
+const API_BASE = process.env.NEXT_PUBLIC_KNOWLEDGE_LIB_API_BASE || "http://localhost:8000";
 
 type TabPanelProps = {
   value: number;
@@ -291,7 +291,7 @@ export default function Home() {
                 {answer && (
                   <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, background: "rgba(59,130,246,0.06)" }}>
                     <Stack spacing={1}>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                      <Typography variant="subtitle1">
                         参考答案
                       </Typography>
                       <Typography variant="body2" color="text.secondary" whiteSpace="pre-wrap">
@@ -311,7 +311,7 @@ export default function Home() {
                   >
                     <Stack spacing={1.2}>
                       <Stack direction={{ xs: "column", md: "row" }} spacing={1} alignItems={{ md: "center" }}>
-                        <Typography variant="subtitle1" sx={{ flex: 1, fontWeight: 600 }}>
+                        <Typography variant="subtitle1" sx={{ flex: 1 }}>
                           {item.file_name || "未知来源"}
                         </Typography>
                         {item.score !== null && (
@@ -333,7 +333,7 @@ export default function Home() {
                             const { title, body } = formatResultText(item.text || "");
                             return (
                               <>
-                                {title && <strong>{title}</strong>}
+                                {title && <span>{title}</span>}
                                 {body ? `\n\n${body}` : ""}
                               </>
                             );

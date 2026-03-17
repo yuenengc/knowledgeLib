@@ -93,6 +93,7 @@ Environment variables used by the backend:
 - `DEEPSEEK_MODEL` (default `deepseek-chat`)
 - `HF_EMBED_MODEL` (default `BAAI/bge-small-zh-v1.5`)
 - `DATA_DIR` (default `backend/data`), `UPLOAD_DIR`, `CHROMA_DIR`
+- `CORS_ORIGINS` (comma-separated, e.g. `http://localhost:3000,https://your-vercel-domain.vercel.app`)
 
 ### Vercel (Frontend)
 
