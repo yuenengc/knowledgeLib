@@ -52,6 +52,23 @@ def add_file(file_id: str, filename: str, stored_path: Path) -> None:
         conn.commit()
 
 
+def get_files_by_name(filename: str) -> list[dict]:
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute(
+            "SELECT id, filename, stored_path, uploaded_at FROM files WHERE filename = ?",
+            (filename,),
+        ).fetchall()
+    return [
+        {
+            "id": row[0],
+            "filename": row[1],
+            "stored_path": row[2],
+            "uploaded_at": row[3],
+        }
+        for row in rows
+    ]
+
+
 def list_files() -> list[dict]:
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
@@ -67,6 +84,42 @@ def list_files() -> list[dict]:
         }
         for row in rows
     ]
+
+
+def list_node_ids_by_file_ids(file_ids: list[str]) -> list[str]:
+    if not file_ids:
+        return []
+    placeholders = ",".join("?" for _ in file_ids)
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute(
+            f"SELECT id FROM nodes WHERE file_id IN ({placeholders})",
+            file_ids,
+        ).fetchall()
+    return [row[0] for row in rows]
+
+
+def delete_nodes_by_file_ids(file_ids: list[str]) -> None:
+    if not file_ids:
+        return
+    placeholders = ",".join("?" for _ in file_ids)
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            f"DELETE FROM nodes WHERE file_id IN ({placeholders})",
+            file_ids,
+        )
+        conn.commit()
+
+
+def delete_files_by_ids(file_ids: list[str]) -> None:
+    if not file_ids:
+        return
+    placeholders = ",".join("?" for _ in file_ids)
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            f"DELETE FROM files WHERE id IN ({placeholders})",
+            file_ids,
+        )
+        conn.commit()
 
 
 def add_nodes(nodes: list[dict]) -> None:

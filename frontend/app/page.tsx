@@ -16,7 +16,7 @@ import {
   Typography,
 } from "@mui/material";
 
-const API_BASE = process.env.NEXT_PUBLIC_KNOWLEDGE_LIB_API_BASE || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_KNOWLEDGE_LIB_API_BASE || "https://knowledgelib.onrender.com";
 
 type TabPanelProps = {
   value: number;

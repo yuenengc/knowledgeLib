@@ -96,3 +96,11 @@ def build_nodes(docs: Iterable, chunk_size: int = 2000, chunk_overlap: int = 300
 
 def insert_nodes(index: VectorStoreIndex, nodes: Iterable) -> None:
     index.insert_nodes(list(nodes))
+
+
+def delete_nodes_by_ids(node_ids: Iterable[str]) -> None:
+    ids = list(node_ids)
+    if not ids:
+        return
+    vector_store = _build_vector_store()
+    vector_store.delete_nodes(node_ids=ids)

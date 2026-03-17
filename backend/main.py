@@ -8,9 +8,18 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from .db import init_db, add_file, list_files, add_nodes
+from .db import (
+    init_db,
+    add_file,
+    list_files,
+    add_nodes,
+    get_files_by_name,
+    list_node_ids_by_file_ids,
+    delete_nodes_by_file_ids,
+    delete_files_by_ids,
+)
 from .graph import run_search
-from .indexer import build_nodes, get_index, insert_nodes, load_documents
+from .indexer import build_nodes, get_index, insert_nodes, load_documents, delete_nodes_by_ids
 from .settings import UPLOAD_DIR, configure_llm
 import os
 import asyncio
@@ -70,6 +79,10 @@ async def upload(file: UploadFile = File(...)) -> dict:
     if ext not in ALLOWED_EXTS:
         raise HTTPException(status_code=400, detail="Unsupported file type")
 
+    existing_files = get_files_by_name(file.filename)
+    old_file_ids = [f["id"] for f in existing_files]
+    old_paths = [f["stored_path"] for f in existing_files]
+
     file_id = str(uuid4())
     stored_path = UPLOAD_DIR / f"{file_id}{ext}"
 
@@ -120,6 +133,17 @@ async def upload(file: UploadFile = File(...)) -> dict:
         raise
 
     add_file(file_id, file.filename, stored_path)
+
+    if old_file_ids:
+        node_ids = list_node_ids_by_file_ids(old_file_ids)
+        delete_nodes_by_ids(node_ids)
+        delete_nodes_by_file_ids(old_file_ids)
+        delete_files_by_ids(old_file_ids)
+        for old_path in old_paths:
+            try:
+                Path(old_path).unlink(missing_ok=True)
+            except Exception:
+                pass
 
     return {"id": file_id, "filename": file.filename}
 
