@@ -6,6 +6,12 @@ from pathlib import Path
 from dotenv import load_dotenv
 import httpx
 from llama_index.core import Settings
+try:
+    from llama_index.llms.openai_like import OpenAILike
+    _OPENAI_LIKE_AVAILABLE = True
+except Exception:
+    OpenAILike = None  # type: ignore
+    _OPENAI_LIKE_AVAILABLE = False
 from llama_index.llms.openai import OpenAI
 from llama_index.embeddings.fastembed import FastEmbedEmbedding
 
@@ -17,18 +23,26 @@ def _env(name: str, default: str | None = None) -> str | None:
     return value.strip()
 
 
+LLM_ENABLED = False
+_LLM_CONFIG: dict[str, str | None] = {"api_base": None, "model": None, "llm_class": None}
+
+
 def configure_llm() -> None:
+    global LLM_ENABLED
+    global _LLM_CONFIG
     load_dotenv(dotenv_path=ROOT_DIR / ".env")
 
     api_key = _env("DEEPSEEK_API_KEY")
     api_base = _env("DEEPSEEK_API_BASE", "https://api.deepseek.com/v1")
     model = _env("DEEPSEEK_MODEL", "deepseek-chat")
     embed_model = _env("HF_EMBED_MODEL", "BAAI/bge-small-zh-v1.5")
+    _LLM_CONFIG = {"api_base": api_base, "model": model, "llm_class": None}
 
     # Always set local embedding model, even if LLM is not configured.
     Settings.embed_model = FastEmbedEmbedding(model_name=embed_model)
 
     if not api_key:
+        LLM_ENABLED = False
         return
 
     # Ensure OpenAI-compatible env vars are set for underlying clients.
@@ -42,15 +56,40 @@ def configure_llm() -> None:
 
     http_client = httpx.Client(event_hooks={"request": [_log_request]})
 
-    Settings.llm = OpenAI(
-        api_key=api_key,
-        api_base=api_base,
-        model=model,
-        temperature=0.1,
-        http_client=http_client,
-    )
+    if _OPENAI_LIKE_AVAILABLE and OpenAILike is not None:
+        Settings.llm = OpenAILike(
+            api_key=api_key,
+            api_base=api_base,
+            model=model,
+            temperature=0.1,
+            http_client=http_client,
+        )
+        _LLM_CONFIG["llm_class"] = "OpenAILike"
+    else:
+        Settings.llm = OpenAI(
+            api_key=api_key,
+            api_base=api_base,
+            model=model,
+            temperature=0.1,
+            http_client=http_client,
+        )
+        _LLM_CONFIG["llm_class"] = "OpenAI"
+    LLM_ENABLED = True
 
     # LLM is optional; embeddings already configured above.
+
+
+def is_llm_enabled() -> bool:
+    return LLM_ENABLED
+
+
+def get_llm_config() -> dict:
+    return {
+        "enabled": LLM_ENABLED,
+        "api_base": _LLM_CONFIG.get("api_base"),
+        "model": _LLM_CONFIG.get("model"),
+        "llm_class": _LLM_CONFIG.get("llm_class"),
+    }
 
 
 ROOT_DIR = Path(__file__).resolve().parent

@@ -1,57 +1,43 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Container,
-  Divider,
-  Paper,
-  Stack,
-  Tab,
-  Tabs,
-  TextField,
-  Typography,
-} from "@mui/material";
+  Bell,
+  FileText,
+  Search,
+  Trash2,
+  Upload,
+  UserCircle,
+  X,
+} from "lucide-react";
+import type { FileItem, SearchResult, UsageInfo } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_KNOWLEDGE_LIB_API_BASE || "https://knowledgelib.onrender.com";
+const API_BASE = process.env.NEXT_PUBLIC_KNOWLEDGE_LIB_API_BASE || "http://localhost:8000";
 
-type TabPanelProps = {
-  value: number;
-  index: number;
-  children: React.ReactNode;
-};
-
-type FileItem = {
-  id: string;
-  filename: string;
-  stored_path: string;
-  uploaded_at: string;
-};
-
-type SearchResult = {
-  score: number | null;
-  text: string;
-  file_name?: string;
-  file_id?: string;
-  source_path?: string;
-};
+function formatTimestamp(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const yyyy = date.getFullYear();
+  const mm = pad(date.getMonth() + 1);
+  const dd = pad(date.getDate());
+  const hh = pad(date.getHours());
+  const min = pad(date.getMinutes());
+  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+}
 
 function formatResultText(text: string) {
-  const flattened = text.replace(/\r\n/g, "\n").replace(/\n+/g, " ");
-  const deDotted = flattened
-    .replace(/[.·•]{5,}/g, " ")
-    .replace(/\s{2,}/g, " ");
-  const normalized = deDotted.replace(/([。！？；])\s*/g, "$1\n\n").trim();
+  const normalizedNewlines = text.replace(/\r\n/g, "\n");
+  const deDotted = normalizedNewlines.replace(/[.·•]{5,}/g, " ");
+  const normalized = deDotted.replace(/([。！？；])[ \t]*/g, "$1\n\n").trim();
   if (/\d+\.\s+/.test(normalized)) {
     return { title: "", body: normalized };
   }
   const lines = normalized
     .split(/\n/)
     .map((line) => line.trim())
-    .filter((line) => line.length > 0)
     .filter((line) => !/^\d+(\.\d+)*\.?$/.test(line));
   const title = lines.shift() || "";
   const body = lines.join("\n");
@@ -62,35 +48,89 @@ function isTableText(text: string) {
   return /\|.+\|/.test(text) && /\n\|?[-: ]+\|/.test(text);
 }
 
-function TabPanel({ value, index, children }: TabPanelProps) {
-  if (value !== index) return null;
-  return (
-    <Box sx={{ pt: 3 }}>
+type CodeProps = React.HTMLAttributes<HTMLElement> & { inline?: boolean };
+
+const markdownComponents: Components = {
+  p: ({ children, ...props }) => (
+    <p className="text-sm leading-6 text-slate-600" {...props}>
       {children}
-    </Box>
-  );
-}
+    </p>
+  ),
+  strong: ({ children, ...props }) => (
+    <strong className="font-semibold text-slate-900" {...props}>
+      {children}
+    </strong>
+  ),
+  em: ({ children, ...props }) => (
+    <em className="italic text-slate-700" {...props}>
+      {children}
+    </em>
+  ),
+  h1: ({ children, ...props }) => (
+    <h3 className="text-sm font-semibold text-slate-900" {...props}>
+      {children}
+    </h3>
+  ),
+  h2: ({ children, ...props }) => (
+    <h4 className="text-sm font-semibold text-slate-900" {...props}>
+      {children}
+    </h4>
+  ),
+  h3: ({ children, ...props }) => (
+    <h5 className="text-sm font-semibold text-slate-900" {...props}>
+      {children}
+    </h5>
+  ),
+  ul: ({ children, ...props }) => (
+    <ul className="list-disc space-y-1 pl-5 text-sm text-slate-600" {...props}>
+      {children}
+    </ul>
+  ),
+  ol: ({ children, ...props }) => (
+    <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-600" {...props}>
+      {children}
+    </ol>
+  ),
+  li: ({ children, ...props }) => <li {...props}>{children}</li>,
+  blockquote: ({ children, ...props }) => (
+    <blockquote
+      className="border-l-2 border-dashed border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-600"
+      {...props}
+    >
+      {children}
+    </blockquote>
+  ),
+  code: ({ inline, children, ...props }: CodeProps) =>
+    inline ? (
+      <code className="rounded-md bg-slate-100 px-1 py-0.5 text-xs text-slate-700" {...props}>
+        {children}
+      </code>
+    ) : (
+      <pre className="overflow-x-auto rounded-lg bg-slate-100 p-3 text-xs text-slate-700">
+        <code {...props}>{children}</code>
+      </pre>
+    ),
+};
 
 export default function Home() {
-  const [tab, setTab] = useState(0);
   const [files, setFiles] = useState<FileItem[]>([]);
-
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearStatus, setClearStatus] = useState<string | null>(null);
+  const [clearError, setClearError] = useState<string | null>(null);
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [answer, setAnswer] = useState("");
+  const [usage, setUsage] = useState<UsageInfo | null>(null);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  const headerGradient = useMemo(
-    () =>
-      "linear-gradient(120deg, rgba(59,130,246,0.12), rgba(6,182,212,0.08) 55%, rgba(255,255,255,0.8))",
-    []
-  );
+  const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
+  const [activeFileId, setActiveFileId] = useState<string | null>(null);
 
   const fetchFiles = async () => {
     try {
@@ -98,7 +138,7 @@ export default function Home() {
       if (!res.ok) return;
       const data = await res.json();
       setFiles(data.files || []);
-    } catch (err) {
+    } catch {
       // ignore
     }
   };
@@ -107,9 +147,17 @@ export default function Home() {
     fetchFiles();
   }, []);
 
+  useEffect(() => {
+    if (!activeFileId && files.length > 0) {
+      setActiveFileId(files[0].id);
+    }
+  }, [files, activeFileId]);
+
   const handleUpload = async () => {
     setUploadError(null);
     setUploadStatus(null);
+    setClearStatus(null);
+    setClearError(null);
 
     if (!selectedFile) {
       setUploadError("请先选择文件");
@@ -146,10 +194,45 @@ export default function Home() {
     }
   };
 
+  const handleClearAll = async () => {
+    setClearError(null);
+    setClearStatus(null);
+
+    if (!window.confirm("确定要清空所有历史上传记录吗？此操作不可恢复。")) {
+      return;
+    }
+
+    setClearing(true);
+    try {
+      const res = await fetch(`${API_BASE}/clear`, { method: "POST" });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.detail || "清空失败");
+      }
+      const data = await res.json();
+      setClearStatus(`已清空 ${data.files ?? 0} 个文件`);
+      setResults([]);
+      setAnswer("");
+      setUsage(null);
+      setSelectedResult(null);
+      await fetchFiles();
+    } catch (err) {
+      if (err instanceof Error) {
+        setClearError(err.message || "清空失败");
+      } else {
+        setClearError("清空失败");
+      }
+    } finally {
+      setClearing(false);
+    }
+  };
+
   const handleSearch = async () => {
     setSearchError(null);
     setResults([]);
     setAnswer("");
+    setUsage(null);
+    setSelectedResult(null);
 
     if (!query.trim()) {
       setSearchError("请输入检索词");
@@ -158,7 +241,7 @@ export default function Home() {
 
     setSearching(true);
     try {
-      const res = await fetch(`${API_BASE}/search`, {
+      const res = await fetch(`${API_BASE}/search/stream`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -166,14 +249,59 @@ export default function Home() {
         body: JSON.stringify({ query, top_k: 5 }),
       });
 
-      if (!res.ok) {
-        const error = await res.json();
+      if (!res.ok || !res.body) {
+        const error = await res.json().catch(() => ({}));
         throw new Error(error.detail || "检索失败");
       }
 
-      const data = await res.json();
-      setResults(data.results || []);
-      setAnswer(data.answer || "");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+        for (const part of parts) {
+          const lines = part.split("\n").map((line) => line.trim()).filter(Boolean);
+          let eventName = "message";
+          const dataLines: string[] = [];
+          for (const line of lines) {
+            if (line.startsWith("event:")) {
+              eventName = line.slice(6).trim();
+            } else if (line.startsWith("data:")) {
+              dataLines.push(line.slice(5).trim());
+            }
+          }
+          const dataText = dataLines.join("\n");
+          if (!dataText) continue;
+          let payload: any = {};
+          try {
+            payload = JSON.parse(dataText);
+          } catch {
+            payload = { content: dataText };
+          }
+
+          if (eventName === "results") {
+            const nextResults = payload.results || [];
+            setResults(nextResults);
+            if (nextResults.length > 0) {
+              setSelectedResult(nextResults[0]);
+            }
+          } else if (eventName === "delta") {
+            const content = payload.content || "";
+            if (content) {
+              setAnswer((prev) => prev + content);
+            }
+          } else if (eventName === "usage") {
+            setUsage(Object.keys(payload).length > 0 ? payload : null);
+          } else if (eventName === "error") {
+            setSearchError(payload.message || "检索失败");
+          }
+        }
+      }
     } catch (err) {
       if (err instanceof Error) {
         setSearchError(err.message || "检索失败");
@@ -185,174 +313,266 @@ export default function Home() {
     }
   };
 
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    if (!searching) {
+      void handleSearch();
+    }
+  };
+
   return (
-    <main>
-      <Container maxWidth="lg">
-        <Paper
-          elevation={0}
-          sx={{
-            p: 4,
-            background: headerGradient,
-            borderRadius: 4,
-            boxShadow: "none",
-            backdropFilter: "blur(6px)",
-          }}
-        >
-          <Stack spacing={1.5}>
-            <Typography variant="h4">企业知识库</Typography>
-            <Typography color="text.secondary">
-              上传企业文档并进行语义检索，系统自动标注来源文件。
-            </Typography>
-            <Stack direction="row" spacing={1} flexWrap="wrap">
-              <Chip label="DeepSeek" color="primary" />
-              <Chip label="Chroma" color="secondary" />
-              <Chip label="LlamaIndex" variant="outlined" />
-              <Chip label="LangGraph" variant="outlined" />
-              <Chip label="Next.js + MUI" variant="outlined" />
-            </Stack>
-          </Stack>
-        </Paper>
+    <main className="min-h-screen bg-slate-50">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur-md">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-teal-500 text-xs font-semibold text-white">
+              KB
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-900">Enterprise Knowledge Base</div>
+              <div className="text-xs text-slate-500">基于语义检索的企业级智能文档中心</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200/60 bg-white px-3 py-1 text-xs text-slate-600 shadow-sm">
+              v0.1.0
+            </span>
+            <button className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200/60 bg-white text-slate-600 shadow-sm">
+              <Bell className="h-4 w-4" />
+            </button>
+            <button className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200/60 bg-white text-slate-600 shadow-sm">
+              <UserCircle className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+      </header>
 
-        <Paper elevation={0} sx={{ mt: 4, p: 3, borderRadius: 4, boxShadow: "none" }}>
-          <Tabs value={tab} onChange={(_, value) => setTab(value)} textColor="primary">
-            <Tab label="文档上传" />
-            <Tab label="知识检索" />
-          </Tabs>
-          <Divider sx={{ mt: 1 }} />
+      <div className="mx-auto grid max-w-6xl grid-cols-1 items-start gap-6 px-6 py-8 lg:grid-cols-[260px_1fr_320px]">
+        <aside className="rounded-xl border border-slate-200/60 bg-white p-4 shadow-sm">
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-xs font-semibold text-slate-900">文档上传</h3>
+              <p className="text-xs text-slate-500">支持 PDF / Word / PPT</p>
+            </div>
 
-          <TabPanel value={tab} index={0}>
-            <Stack spacing={2.5}>
-              <Typography variant="h6">上传文档</Typography>
-              <Typography color="text.secondary">
-                支持 PDF / Word / PPT，上传后自动解析并写入向量数据库。
-              </Typography>
-              <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ md: "center" }}>
-                <Button variant="outlined" component="label">
-                  选择文件
-                  <input
-                    type="file"
-                    hidden
-                    accept=".pdf,.docx,.pptx"
-                    onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
-                  />
-                </Button>
-                <Typography color="text.secondary">
-                  {selectedFile ? selectedFile.name : "未选择文件"}
-                </Typography>
-                <Button variant="contained" onClick={handleUpload} disabled={uploading}>
-                  {uploading ? "上传中..." : "开始上传"}
-                </Button>
-              </Stack>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200/60 bg-white px-3 py-2 text-xs text-slate-700 shadow-sm">
+                <Upload className="h-4 w-4" />
+                选择文件
+                <input
+                  type="file"
+                  hidden
+                  accept=".pdf,.docx,.pptx"
+                  onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
+                />
+              </label>
+              <span className="text-xs text-slate-500">{selectedFile ? selectedFile.name : "未选择文件"}</span>
+              <button
+                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={handleUpload}
+                disabled={uploading}
+              >
+                <FileText className="h-4 w-4" />
+                {uploading ? "上传中..." : "开始上传"}
+              </button>
+            </div>
 
-              {uploadStatus && <Alert severity="success">{uploadStatus}</Alert>}
-              {uploadError && <Alert severity="error">{uploadError}</Alert>}
+            {uploadStatus && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                {uploadStatus}
+              </div>
+            )}
+            {uploadError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                {uploadError}
+              </div>
+            )}
+            {clearStatus && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                {clearStatus}
+              </div>
+            )}
+            {clearError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                {clearError}
+              </div>
+            )}
 
-              <Divider />
-              <Typography variant="h6">已入库文件</Typography>
-              <Stack spacing={1}>
-                {files.length === 0 && (
-                  <Typography color="text.secondary">暂无文件，请先上传。</Typography>
-                )}
-                {files.map((file) => (
-                  <Paper key={file.id} variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
-                    <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ md: "center" }}>
-                      <Box sx={{ flex: 1 }}>
-                        <Typography>{file.filename}</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {file.uploaded_at}
-                        </Typography>
-                      </Box>
-                      <Chip label={file.id.slice(0, 8)} size="small" />
-                    </Stack>
-                  </Paper>
-                ))}
-              </Stack>
-            </Stack>
-          </TabPanel>
+            <div className="flex items-center justify-between pt-2">
+              <div className="text-xs font-semibold text-slate-700">历史记录</div>
+              {files.length > 0 && (
+                <button
+                  className="inline-flex items-center gap-1 text-xs text-red-500"
+                  onClick={handleClearAll}
+                  disabled={clearing || uploading}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {clearing ? "清空中" : "清空"}
+                </button>
+              )}
+            </div>
 
-          <TabPanel value={tab} index={1}>
-            <Stack spacing={2.5}>
-              <Typography variant="h6">知识检索</Typography>
-              <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ md: "center" }}>
-                <TextField
-                  fullWidth
-                  label="输入检索词"
+            <div className="rounded-xl border border-slate-200/60 bg-white">
+              {files.length === 0 && (
+                <div className="px-3 py-3 text-xs text-slate-500">暂无文件</div>
+              )}
+              {files.map((file) => {
+                const isActive = activeFileId === file.id;
+                return (
+                  <button
+                    key={file.id}
+                    className={`flex w-full items-start justify-between gap-2 border-b border-slate-200/60 px-3 py-2 text-left text-xs last:border-b-0 ${isActive ? "bg-blue-50/50" : "bg-white"
+                      }`}
+                    onClick={() => setActiveFileId(file.id)}
+                    type="button"
+                  >
+                    <div>
+                      <div className="font-medium text-slate-900">{file.filename}</div>
+                      <div className="text-[11px] text-slate-500">{formatTimestamp(file.uploaded_at)}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </aside>
+
+        <section className="space-y-4">
+          <div className="rounded-xl border border-slate-200/60 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex h-10 flex-1 items-center gap-2 rounded-lg border border-slate-200/60 bg-white px-3 shadow-sm">
+                <Search className="h-4 w-4 text-slate-400" />
+                <input
+                  className="w-full text-sm text-slate-900 outline-none"
+                  placeholder="输入检索词"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={handleSearchKeyDown}
                 />
-                <Button variant="contained" onClick={handleSearch} disabled={searching}>
-                  {searching ? "检索中..." : "开始检索"}
-                </Button>
-              </Stack>
+              </div>
+              <button
+                className="h-10 rounded-lg bg-blue-600 px-4 text-xs font-medium text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={handleSearch}
+                disabled={searching}
+              >
+                {searching ? "检索中..." : "开始检索"}
+              </button>
+            </div>
 
-              {searchError && <Alert severity="error">{searchError}</Alert>}
+            {searchError && (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                {searchError}
+              </div>
+            )}
 
-              <Stack spacing={2}>
-                {answer && (
-                  <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, background: "rgba(59,130,246,0.06)" }}>
-                    <Stack spacing={1}>
-                      <Typography variant="subtitle1">
-                        参考答案
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" whiteSpace="pre-wrap">
+            {(answer || searching) && (
+              <div className="mt-4 rounded-xl border border-slate-200/60 bg-white p-4 shadow-sm">
+                <div className="border-l-[3px] border-blue-600 pl-3">
+                  <div className="text-sm font-semibold text-slate-900">参考答案</div>
+                  <div className="mt-2 text-sm text-slate-600">
+                    {searching && !answer ? (
+                      <div className="flex items-center text-slate-500">
+                        <span className="flex items-center gap-1">
+                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:0ms]" />
+                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:150ms]" />
+                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:300ms]" />
+                        </span>
+                      </div>
+                    ) : (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                         {answer}
-                      </Typography>
-                    </Stack>
-                  </Paper>
-                )}
-                {results.length === 0 && !searching && !searchError && !answer && (
-                  <Typography color="text.secondary">输入关键词开始检索。</Typography>
-                )}
-                {results.map((item, index) => (
-                  <Paper
-                    key={`${item.file_id ?? "unknown"}-${index}`}
-                    variant="outlined"
-                    sx={{ p: 2.5, borderRadius: 3, background: "rgba(255,255,255,0.7)" }}
-                  >
-                    <Stack spacing={1.2}>
-                      <Stack direction={{ xs: "column", md: "row" }} spacing={1} alignItems={{ md: "center" }}>
-                        <Typography variant="subtitle1" sx={{ flex: 1 }}>
-                          {item.file_name || "未知来源"}
-                        </Typography>
-                        {item.score !== null && (
-                          <Chip label={`Score ${item.score.toFixed(4)}`} size="small" />
-                        )}
-                      </Stack>
-                      {isTableText(item.text || "") ? (
-                        <Typography
-                          variant="body2"
-                          color="text.secondary"
-                          component="pre"
-                          sx={{ whiteSpace: "pre-wrap", fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
-                        >
-                          {item.text?.trim()}
-                        </Typography>
-                      ) : (
-                        <Typography variant="body2" color="text.secondary" whiteSpace="pre-wrap" lineHeight={1.7}>
-                          {(() => {
-                            const { title, body } = formatResultText(item.text || "");
-                            return (
-                              <>
-                                {title && <span>{title}</span>}
-                                {body ? `\n\n${body}` : ""}
-                              </>
-                            );
-                          })()}
-                        </Typography>
-                      )}
-                      {item.source_path && (
-                        <Typography variant="caption" color="text.secondary">
-                          来源文件: {item.source_path}
-                        </Typography>
-                      )}
-                    </Stack>
-                  </Paper>
-                ))}
-              </Stack>
-            </Stack>
-          </TabPanel>
-        </Paper>
-      </Container>
+                      </ReactMarkdown>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+            {!answer && !searching && !searchError && (
+              <div className="mt-4 text-xs text-slate-500">输入关键词开始检索。</div>
+            )}
+          </div>
+
+          {usage && (
+            <div className="text-[11px] text-slate-500">
+              tokens: {usage.total_tokens ?? "-"}
+            </div>
+          )}
+        </section>
+
+        <aside className="rounded-xl border border-slate-200/60 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold text-slate-700">详情面板</div>
+            <button className="text-slate-400" type="button">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {!selectedResult && (
+            <div className="mt-4 rounded-xl border border-dashed border-slate-200 p-4 text-xs text-slate-500">
+              {searching ? (
+                <div className="flex items-center text-slate-500">
+                  <span className="flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:0ms]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:150ms]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:300ms]" />
+                  </span>
+                </div>
+              ) : (
+                "请选择检索结果查看详情。"
+              )}
+            </div>
+          )}
+
+          {selectedResult && (
+            <div className="mt-4 space-y-4">
+              <div>
+                <div className="text-xs font-semibold text-slate-700">原文预览</div>
+                <div className="mt-2 max-h-72 overflow-y-auto rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+                  {isTableText(selectedResult.text) ? (
+                    <pre className="whitespace-pre-wrap font-mono">{selectedResult.text}</pre>
+                  ) : (
+                    <div className="whitespace-pre-wrap">
+                      {(() => {
+                        const { title, body } = formatResultText(selectedResult.text);
+                        return (
+                          <>
+                            {title && <div className="font-medium text-slate-900">{title}</div>}
+                            {body ? `\n\n${body}` : ""}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs font-semibold text-slate-700">元数据</div>
+                <div className="mt-2 space-y-2 text-xs">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="text-slate-500 font-medium whitespace-nowrap">文件名</div>
+                    <div className="text-slate-900">{selectedResult.file_name || "未知"}</div>
+                  </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="text-slate-500 font-medium whitespace-nowrap">路径</div>
+                    <div className="text-slate-900 font-mono break-all">{selectedResult.source_path || "-"}</div>
+                  </div>
+                  {selectedResult.score !== null && (
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="text-slate-500 font-medium">Score</div>
+                      <div className="text-slate-900">{selectedResult.score.toFixed(4)}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </aside>
+      </div>
     </main>
   );
 }

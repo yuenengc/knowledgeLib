@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .db import (
@@ -18,11 +19,12 @@ from .db import (
     delete_nodes_by_file_ids,
     delete_files_by_ids,
 )
-from .graph import run_search
-from .indexer import build_nodes, get_index, insert_nodes, load_documents, delete_nodes_by_ids
-from .settings import UPLOAD_DIR, configure_llm
+from .graph import run_search, stream_answer
+from .indexer import build_nodes, get_index, insert_nodes, load_documents, delete_nodes_by_ids, clear_vector_store
+from .settings import UPLOAD_DIR, configure_llm, get_llm_config
 import os
 import asyncio
+import json
 
 ALLOWED_EXTS = {".pdf", ".docx"}
 
@@ -61,9 +63,30 @@ async def ensure_initialized() -> None:
         _initialized = True
 
 
+def _remove_previous_versions(filename: str) -> None:
+    existing_files = get_files_by_name(filename)
+    if not existing_files:
+        return
+
+    old_file_ids = [f["id"] for f in existing_files]
+    old_paths = [f["stored_path"] for f in existing_files]
+
+    node_ids = list_node_ids_by_file_ids(old_file_ids)
+    delete_nodes_by_ids(node_ids)
+    delete_nodes_by_file_ids(old_file_ids)
+    delete_files_by_ids(old_file_ids)
+
+    for old_path in old_paths:
+        try:
+            Path(old_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok"}
+    await ensure_initialized()
+    return {"status": "ok", "llm": get_llm_config()}
 
 
 @app.get("/files")
@@ -79,9 +102,7 @@ async def upload(file: UploadFile = File(...)) -> dict:
     if ext not in ALLOWED_EXTS:
         raise HTTPException(status_code=400, detail="Unsupported file type")
 
-    existing_files = get_files_by_name(file.filename)
-    old_file_ids = [f["id"] for f in existing_files]
-    old_paths = [f["stored_path"] for f in existing_files]
+    _remove_previous_versions(file.filename)
 
     file_id = str(uuid4())
     stored_path = UPLOAD_DIR / f"{file_id}{ext}"
@@ -134,22 +155,35 @@ async def upload(file: UploadFile = File(...)) -> dict:
 
     add_file(file_id, file.filename, stored_path)
 
-    if old_file_ids:
-        node_ids = list_node_ids_by_file_ids(old_file_ids)
-        delete_nodes_by_ids(node_ids)
-        delete_nodes_by_file_ids(old_file_ids)
-        delete_files_by_ids(old_file_ids)
-        for old_path in old_paths:
-            try:
-                Path(old_path).unlink(missing_ok=True)
-            except Exception:
-                pass
-
     return {"id": file_id, "filename": file.filename}
 
 
-@app.post("/search")
-async def search(request: SearchRequest) -> dict:
+@app.post("/clear")
+async def clear_all() -> dict:
+    await ensure_initialized()
+    files = list_files()
+    if files:
+        file_ids = [f["id"] for f in files]
+        node_ids = list_node_ids_by_file_ids(file_ids)
+        delete_nodes_by_ids(node_ids)
+        delete_nodes_by_file_ids(file_ids)
+        delete_files_by_ids(file_ids)
+        for f in files:
+            try:
+                Path(f["stored_path"]).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    clear_vector_store()
+    return {"status": "cleared", "files": len(files)}
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+@app.post("/search/stream")
+async def search_stream(request: SearchRequest):
     query = request.query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="Query is required")
@@ -157,4 +191,26 @@ async def search(request: SearchRequest) -> dict:
     await ensure_initialized()
     index = get_index()
     payload = run_search(index, query, request.top_k)
-    return {"query": request.query, "answer": payload.get("answer", ""), "results": payload.get("results", [])}
+    results = payload.get("results", [])
+
+    async def event_gen():
+        yield _sse("results", {"results": results})
+        if not results:
+            yield _sse("done", {"usage": {}})
+            return
+
+        async for evt in stream_answer(query, results):
+            if evt.get("type") == "delta":
+                yield _sse("delta", {"content": evt.get("content", "")})
+            elif evt.get("type") == "usage":
+                yield _sse("usage", evt.get("usage", {}))
+            elif evt.get("type") == "error":
+                yield _sse("error", {"message": evt.get("message", "检索失败")})
+
+        yield _sse("done", {})
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )

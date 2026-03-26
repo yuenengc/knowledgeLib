@@ -2,16 +2,17 @@
 
 from pathlib import Path
 from typing import Iterable
-
 try:
     import camelot
 except Exception:
     camelot = None
 
 import chromadb
+import mammoth
+from bs4 import BeautifulSoup
 from llama_index.core import Document, SimpleDirectoryReader, VectorStoreIndex
 from llama_index.core.node_parser import SentenceSplitter
-from llama_index.readers.file import DocxReader, PyMuPDFReader
+from llama_index.readers.file import PyMuPDFReader
 from llama_index.vector_stores.chroma import ChromaVectorStore
 
 from .settings import CHROMA_DIR
@@ -24,6 +25,17 @@ def _build_vector_store() -> ChromaVectorStore:
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
     collection = client.get_or_create_collection(_COLLECTION_NAME)
     return ChromaVectorStore(chroma_collection=collection)
+
+
+def clear_vector_store() -> None:
+    global _index
+    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+    try:
+        client.delete_collection(_COLLECTION_NAME)
+    except Exception:
+        pass
+    client.get_or_create_collection(_COLLECTION_NAME)
+    _index = None
 
 
 def get_index() -> VectorStoreIndex:
@@ -57,19 +69,71 @@ def _extract_pdf_tables(file_path: Path) -> list[str]:
     return markdown_tables
 
 
+def _docx_to_html(file_path: Path) -> str:
+    result = mammoth.convert_to_html(str(file_path))
+    html = result.value or ""
+    return html.strip()
+
+
+def _split_html_by_headings(html: str) -> list[dict]:
+    soup = BeautifulSoup(html, "html.parser")
+    body = soup.body or soup
+    sections: list[dict] = []
+    current = {"title": "Untitled", "level": 0, "chunks": []}
+
+    for el in body.children:
+        if not getattr(el, "name", None):
+            continue
+        name = el.name.lower()
+        if name in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            if current["chunks"]:
+                sections.append(current)
+            level = int(name[1])
+            title = el.get_text(" ", strip=True) or "Untitled"
+            current = {"title": title, "level": level, "chunks": []}
+            continue
+
+        text = el.get_text(" ", strip=True)
+        if text:
+            current["chunks"].append(text)
+
+    if current["chunks"]:
+        sections.append(current)
+
+    return sections
+
+
 def load_documents(file_path: Path, metadata: dict) -> list:
-    file_extractor = {
-        ".pdf": PyMuPDFReader(),
-        ".docx": DocxReader(),
-    }
+    if file_path.suffix.lower() == ".docx":
+        html_text = _docx_to_html(file_path)
+        sections = _split_html_by_headings(html_text) if html_text else []
+        docs = []
+        for idx, sec in enumerate(sections):
+            text = f"{sec['title']}\n{'\n'.join(sec['chunks'])}".strip()
+            if not text:
+                continue
+            docs.append(
+                Document(
+                    text=text,
+                    metadata={
+                        **metadata,
+                        "section_title": sec["title"],
+                        "section_level": sec["level"],
+                        "section_index": idx,
+                    },
+                )
+            )
+    else:
+        file_extractor = {
+            ".pdf": PyMuPDFReader(),
+        }
+        reader = SimpleDirectoryReader(
+            input_files=[str(file_path)],
+            file_extractor=file_extractor,
+            filename_as_id=True,
+        )
+        docs = reader.load_data()
 
-    reader = SimpleDirectoryReader(
-        input_files=[str(file_path)],
-        file_extractor=file_extractor,
-        filename_as_id=True,
-    )
-
-    docs = reader.load_data()
     if file_path.suffix.lower() == ".pdf":
         table_texts = _extract_pdf_tables(file_path)
         if table_texts:
