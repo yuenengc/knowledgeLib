@@ -70,7 +70,8 @@ def _extract_pdf_tables(file_path: Path) -> list[str]:
 
 
 def _docx_to_html(file_path: Path) -> str:
-    result = mammoth.convert_to_html(str(file_path))
+    with file_path.open("rb") as docx_file:
+        result = mammoth.convert_to_html(docx_file)
     html = result.value or ""
     return html.strip()
 

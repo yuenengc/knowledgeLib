@@ -11,6 +11,7 @@ export type SearchResult = {
   file_name?: string;
   file_id?: string;
   source_path?: string;
+  chunk_id?: string | null;
 };
 
 export type UsageInfo = {

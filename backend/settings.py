@@ -25,17 +25,25 @@ def _env(name: str, default: str | None = None) -> str | None:
 
 LLM_ENABLED = False
 _LLM_CONFIG: dict[str, str | None] = {"api_base": None, "model": None, "llm_class": None}
+_EMBED_QUERY_PREFIX: str | None = None
+CHAT_MAX_MESSAGES = int(_env("CHAT_MAX_MESSAGES", "20") or 20)
+CHAT_MAX_TOKENS = int(_env("CHAT_MAX_TOKENS", "4000") or 4000)
+CHAT_SUMMARY_WINDOW = int(_env("CHAT_SUMMARY_WINDOW", "10") or 10)
+CHAT_WARN_RATIO = float(_env("CHAT_WARN_RATIO", "0.8") or 0.8)
+CHAT_MAX_SESSIONS = int(_env("CHAT_MAX_SESSIONS", "5") or 5)
 
 
 def configure_llm() -> None:
     global LLM_ENABLED
     global _LLM_CONFIG
+    global _EMBED_QUERY_PREFIX
     load_dotenv(dotenv_path=ROOT_DIR / ".env")
 
     api_key = _env("DEEPSEEK_API_KEY")
     api_base = _env("DEEPSEEK_API_BASE", "https://api.deepseek.com/v1")
     model = _env("DEEPSEEK_MODEL", "deepseek-chat")
     embed_model = _env("HF_EMBED_MODEL", "BAAI/bge-small-zh-v1.5")
+    _EMBED_QUERY_PREFIX = _env("EMBED_QUERY_PREFIX")
     _LLM_CONFIG = {"api_base": api_base, "model": model, "llm_class": None}
 
     # Always set local embedding model, even if LLM is not configured.
@@ -90,6 +98,10 @@ def get_llm_config() -> dict:
         "model": _LLM_CONFIG.get("model"),
         "llm_class": _LLM_CONFIG.get("llm_class"),
     }
+
+
+def get_embed_query_prefix() -> str | None:
+    return _EMBED_QUERY_PREFIX
 
 
 ROOT_DIR = Path(__file__).resolve().parent
