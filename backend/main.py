@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from .db import (
@@ -137,20 +137,20 @@ async def files() -> dict:
 
 
 @app.get("/sources/{file_id}")
-async def source_detail(file_id: str, limit: int = 3) -> dict:
+async def source_detail(file_id: str, limit: int = 3):
     await ensure_initialized()
     items = list_chunks_by_file_id(file_id, max(1, min(limit, 10)))
-    return {"file_id": file_id, "items": items}
+    return _json_response_with_cache({"file_id": file_id, "items": items})
 
 
 
 @app.get("/chunks/{chunk_id}")
-async def chunk_detail(chunk_id: str) -> dict:
+async def chunk_detail(chunk_id: str):
     await ensure_initialized()
     chunk = get_chunk_by_id(chunk_id)
     if not chunk:
         raise HTTPException(status_code=404, detail="Chunk not found")
-    return {"chunk": chunk}
+    return _json_response_with_cache({"chunk": chunk})
 
 
 @app.delete("/files/{file_id}")
@@ -264,6 +264,13 @@ async def clear_all() -> dict:
 def _sse(event: str, data: dict) -> str:
     # Format a Server-Sent Events message.
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _json_response_with_cache(payload: dict, max_age: int = 300) -> JSONResponse:
+    return JSONResponse(
+        content=payload,
+        headers={"Cache-Control": f"private, max-age={max_age}"},
+    )
 
 def _extract_cited_indices(text: str) -> list[int]:
     # Extract [n] citations from LLM output to filter used sources.
