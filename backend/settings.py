@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import tempfile
 
 from dotenv import load_dotenv
 import httpx
@@ -105,9 +106,28 @@ def get_embed_query_prefix() -> str | None:
 
 
 ROOT_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path(_env("DATA_DIR", str(ROOT_DIR / "data")))
+
+def _default_data_dir() -> Path:
+    # On some Windows/networked drives, SQLite file locking can fail (disk I/O error).
+    # Prefer a per-user local directory by default on Windows to be robust.
+    if os.name == "nt":
+        candidates = [os.getenv("LOCALAPPDATA"), tempfile.gettempdir()]
+        for base in candidates:
+            if not base:
+                continue
+            path = Path(base) / "knowledge-lib"
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+                return path
+            except Exception:
+                continue
+        return ROOT_DIR / "data"
+    return ROOT_DIR / "data"
+
+
+DATA_DIR = Path(_env("DATA_DIR", str(_default_data_dir())))
 UPLOAD_DIR = Path(_env("UPLOAD_DIR", str(DATA_DIR / "uploads")))
-CHROMA_DIR = Path(_env("CHROMA_DIR", str(ROOT_DIR / "chroma_db")))
+CHROMA_DIR = Path(_env("CHROMA_DIR", str(DATA_DIR / "chroma_db")))
 
 
 for _path in (DATA_DIR, UPLOAD_DIR, CHROMA_DIR):

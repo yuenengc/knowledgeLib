@@ -10,6 +10,7 @@ from .settings import DATA_DIR
 
 DB_PATH = DATA_DIR / "metadata.db"
 _WRITE_LOCK = threading.Lock()
+_PARENT_ID_PREFIX = "parent::"
 
 
 def _connect() -> sqlite3.Connection:
@@ -49,10 +50,16 @@ def init_db() -> None:
                     file_id TEXT NOT NULL,
                     text TEXT NOT NULL,
                     order_idx INTEGER,
+                    parent_id TEXT,
                     FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
                 )
                 """
             )
+
+            # Minimal schema migration for existing DBs created before `parent_id` existed.
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(chunks)").fetchall()}
+            if cols and "parent_id" not in cols:
+                conn.execute("ALTER TABLE chunks ADD COLUMN parent_id TEXT")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS messages (
@@ -87,6 +94,9 @@ def init_db() -> None:
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_chunks_file_order ON chunks(file_id, order_idx)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chunks_parent_id ON chunks(parent_id)"
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_messages_chat_created ON messages(chat_id, created_at)"
@@ -150,8 +160,13 @@ def list_chunk_ids_by_file_ids(file_ids: list[str]) -> list[str]:
     placeholders = ",".join("?" for _ in file_ids)
     with _connect() as conn:
         rows = conn.execute(
-            f"SELECT id FROM chunks WHERE file_id IN ({placeholders})",
-            file_ids,
+            f"""
+            SELECT id
+            FROM chunks
+            WHERE file_id IN ({placeholders})
+              AND (parent_id IS NOT NULL OR id NOT LIKE ?)
+            """,
+            [*file_ids, f"{_PARENT_ID_PREFIX}%"],
         ).fetchall()
     return [row[0] for row in rows]
 
@@ -189,8 +204,8 @@ def add_chunks(chunks: list[dict]) -> None:
         with _connect() as conn:
             conn.executemany(
                 """
-                INSERT OR REPLACE INTO chunks (id, file_id, text, order_idx)
-                VALUES (?, ?, ?, ?)
+                INSERT OR REPLACE INTO chunks (id, file_id, text, order_idx, parent_id)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -198,6 +213,7 @@ def add_chunks(chunks: list[dict]) -> None:
                         chunk["file_id"],
                         chunk["text"],
                         chunk.get("order_idx"),
+                        chunk.get("parent_id"),
                     )
                     for chunk in chunks
                 ],
@@ -334,6 +350,28 @@ def delete_messages_by_ids(message_ids: list[str]) -> None:
             )
             conn.commit()
 
+            # Migration for existing DBs: ensure chunks.parent_id exists.
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(chunks)").fetchall()}
+            if "parent_id" not in cols:
+                conn.execute("ALTER TABLE chunks ADD COLUMN parent_id TEXT")
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_chunks_parent_id ON chunks(parent_id)"
+                )
+                conn.commit()
+
+
+def clear_all_tables() -> None:
+    """Clear all SQLite metadata tables (files/chunks/chats/messages/citations)."""
+    with _WRITE_LOCK:
+        with _connect() as conn:
+            # Order matters with FK constraints.
+            conn.execute("DELETE FROM citations")
+            conn.execute("DELETE FROM messages")
+            conn.execute("DELETE FROM chats")
+            conn.execute("DELETE FROM chunks")
+            conn.execute("DELETE FROM files")
+            conn.commit()
+
 
 def _build_quote_excerpt(text: str | None, limit: int = 100) -> str:
     normalized = " ".join((text or "").split())
@@ -399,7 +437,7 @@ def get_chunk_by_id(chunk_id: str) -> dict | None:
     with _connect() as conn:
         row = conn.execute(
             """
-            SELECT c.id, c.file_id, f.filename, f.stored_path, c.text, c.order_idx
+            SELECT c.id, c.file_id, f.filename, f.stored_path, c.text, c.order_idx, c.parent_id
             FROM chunks c
             LEFT JOIN files f ON f.id = c.file_id
             WHERE c.id = ?
@@ -415,6 +453,7 @@ def get_chunk_by_id(chunk_id: str) -> dict | None:
         "stored_path": row[3],
         "text": row[4],
         "order_idx": row[5],
+        "parent_id": row[6],
     }
 
 
@@ -422,10 +461,22 @@ def list_chunks() -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(
             """
-            SELECT c.id, c.file_id, f.filename, f.stored_path, c.text, c.order_idx
+            SELECT
+                c.id,
+                c.file_id,
+                f.filename,
+                f.stored_path,
+                c.text,
+                c.order_idx,
+                c.parent_id,
+                p.text
             FROM chunks c
             LEFT JOIN files f ON f.id = c.file_id
+            LEFT JOIN chunks p ON p.id = c.parent_id
+            WHERE (c.parent_id IS NOT NULL OR c.id NOT LIKE ?)
             """
+            ,
+            (f"{_PARENT_ID_PREFIX}%",),
         ).fetchall()
     return [
         {
@@ -435,6 +486,8 @@ def list_chunks() -> list[dict]:
             "stored_path": row[3],
             "text": row[4],
             "order_idx": row[5],
+            "parent_id": row[6],
+            "parent_text": row[7],
         }
         for row in rows
     ]
@@ -444,14 +497,15 @@ def list_chunks_by_file_id(file_id: str, limit: int = 3) -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(
             """
-            SELECT c.id, c.file_id, f.filename, f.stored_path, c.text, c.order_idx
+            SELECT c.id, c.file_id, f.filename, f.stored_path, c.text, c.order_idx, c.parent_id
             FROM chunks c
             LEFT JOIN files f ON f.id = c.file_id
             WHERE c.file_id = ?
+              AND (c.parent_id IS NOT NULL OR c.id NOT LIKE ?)
             ORDER BY c.order_idx ASC
             LIMIT ?
             """,
-            (file_id, limit),
+            (file_id, f"{_PARENT_ID_PREFIX}%", limit),
         ).fetchall()
     return [
         {
@@ -461,6 +515,7 @@ def list_chunks_by_file_id(file_id: str, limit: int = 3) -> list[dict]:
             "stored_path": row[3],
             "text": row[4],
             "order_idx": row[5],
+            "parent_id": row[6],
         }
         for row in rows
     ]

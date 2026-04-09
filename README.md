@@ -144,3 +144,16 @@ Design notes:
 - `citations.chunk_id` references `chunks.id`
 - chat/message/citation cleanup relies on foreign-key cascade
 - retrieval uses Chroma for vector search and SQLite `chunks` for BM25 fallback
+
+查看向量数据库:
+
+- 启动 Chroma Server（CLI），在项目根目录运行，保持窗口不关闭：
+  chroma run --path backend/chroma_db --host 0.0.0.0 --port 8001
+- 启动 UI（Docker）
+  docker run -d --rm --name chromadb-admin -p 3001:3001 fengzhichao/chromadb-admin
+- 打开 UI 并配置
+  浏览器打开：http://localhost:3001
+  Setup 里填 API 地址：http://host.docker.internal:8001
+
+清空表
+curl.exe -X POST "http://localhost:8000/clear"

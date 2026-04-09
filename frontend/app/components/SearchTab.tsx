@@ -124,7 +124,6 @@ export default function SearchTab({
     [onCitationClick]
   );
 
-  console.log("--citationsByMessageId", citationsByMessageId);
 
   const linkifyCitations = (content: string, messageId?: string) => {
     const wrapped = content.replace(/\[(\d+)\]/g, (_match, num) => `【${num}】`);

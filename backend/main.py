@@ -31,6 +31,7 @@ from .db import (
     get_chunk_by_id,
     touch_chat,
     update_chat_title,
+    clear_all_tables,
 )
 from .graph import run_search, stream_answer
 from .indexer import build_nodes, get_index, insert_nodes, load_documents, delete_nodes_by_ids, clear_vector_store
@@ -206,13 +207,13 @@ async def upload(file: UploadFile = File(...)) -> dict:
                 detail="Document has no extractable text (encrypted or scanned). Please upload a decrypted or text-based file.",
             )
         index = get_index()
-        nodes = build_nodes(docs)
-        if not nodes:
+        index_nodes, db_nodes = build_nodes(docs)
+        if not index_nodes or not db_nodes:
             raise HTTPException(
                 status_code=400,
                 detail="Document produced no text chunks. Please upload a text-based file.",
             )
-        insert_nodes(index, nodes)
+        insert_nodes(index, index_nodes)
         add_chunks(
             [
                 {
@@ -220,8 +221,9 @@ async def upload(file: UploadFile = File(...)) -> dict:
                     "file_id": metadata["file_id"],
                     "text": node.get_content(),
                     "order_idx": node.metadata.get("order_idx"),
+                    "parent_id": node.metadata.get("parent_id"),
                 }
-                for node in nodes
+                for node in db_nodes
             ]
         )
     except HTTPException:
@@ -245,20 +247,21 @@ async def clear_all() -> dict:
     await ensure_initialized()
     files = list_files()
     if files:
-        # Remove all indexed data and uploaded files.
-        file_ids = [f["id"] for f in files]
-        chunk_ids = list_chunk_ids_by_file_ids(file_ids)
-        delete_nodes_by_ids(chunk_ids)
-        delete_chunks_by_file_ids(file_ids)
-        delete_files_by_ids(file_ids)
+        # Remove uploaded files from disk first.
         for f in files:
             try:
                 Path(f["stored_path"]).unlink(missing_ok=True)
             except Exception:
                 pass
 
+        # Best-effort delete child nodes; then drop the whole collection.
+        file_ids = [f["id"] for f in files]
+        chunk_ids = list_chunk_ids_by_file_ids(file_ids)
+        delete_nodes_by_ids(chunk_ids)
+
     clear_vector_store()
-    return {"status": "cleared", "files": len(files)}
+    clear_all_tables()
+    return {"status": "cleared", "files": len(files), "tables": "all"}
 
 
 def _sse(event: str, data: dict) -> str:

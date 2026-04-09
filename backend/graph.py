@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 from typing import TypedDict, List, Dict, Tuple, AsyncGenerator
+import logging
 import os
 import json
 
 from langgraph.graph import StateGraph, END
 from llama_index.core import VectorStoreIndex
+from llama_index.core.base.base_retriever import BaseRetriever
+from llama_index.core.retrievers import RecursiveRetriever
 from rank_bm25 import BM25Okapi
 import jieba
 import httpx
+from llama_index.core.schema import BaseNode, IndexNode, NodeWithScore, QueryBundle, TextNode
 
 from .db import list_chunks
 from .settings import is_llm_enabled, get_embed_query_prefix
+
+logger = logging.getLogger("knowledge-lib.search")
+LOG_PREFIX = "----logger   "
 
 
 class SearchState(TypedDict):
@@ -75,6 +82,12 @@ def build_search_graph(index: VectorStoreIndex):
         "tokenized": [],
     }
 
+    def _snip(text: str, max_len: int = 200) -> str:
+        value = (text or "").strip().replace("\n", " ")
+        if len(value) > max_len:
+            return value[:max_len] + "..."
+        return value
+
     def _tokenize(text: str) -> List[str]:
         tokens = [t.strip() for t in jieba.lcut(text) if t.strip()]
         return tokens or text.split()
@@ -93,8 +106,8 @@ def build_search_graph(index: VectorStoreIndex):
 
     def _merge_results(
         items: List[dict],
-        max_per_file: int = 1,
-        max_chars: int = 1800,
+        max_per_file: int = 3,
+        max_chars: int = 5000,
         min_score: float = 0.01,
     ) -> List[dict]:
         seen = set()
@@ -168,8 +181,76 @@ def build_search_graph(index: VectorStoreIndex):
         prefix = get_embed_query_prefix()
         vector_query = f"{prefix}{query}" if prefix else query
 
+        class _FixedRetriever(BaseRetriever):
+            def __init__(self, nodes: List[NodeWithScore]):
+                super().__init__()
+                self._nodes = nodes
+
+            def _retrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
+                return self._nodes
+
+        def _unwrap_vector_node(obj):
+            # llama-index retrievers typically return NodeWithScore(node=BaseNode, score=float).
+            base = getattr(obj, "node", None) or obj
+            score = getattr(obj, "score", None)
+            return base, score
+
+        def _node_id(base) -> str:
+            return (
+                getattr(base, "node_id", None)
+                or getattr(base, "id_", None)
+                or getattr(base, "id", None)
+                or "unknown"
+            )
+
+        def _metadata(base) -> dict:
+            meta = getattr(base, "metadata", None)
+            return meta if isinstance(meta, dict) else {}
+
+        def _content(base) -> str:
+            if hasattr(base, "get_content"):
+                try:
+                    return base.get_content()
+                except Exception:
+                    return str(base)
+            return getattr(base, "text", None) or str(base)
+
+        logger.info(
+            LOG_PREFIX + "[retrieve] query=%s vector_query=%s top_k=%s",
+            query,
+            vector_query,
+            top_k,
+        )
+
         retriever = index.as_retriever(similarity_top_k=max(top_k * 2, 5))
-        vector_nodes = retriever.retrieve(vector_query)
+        vector_nodes_raw = retriever.retrieve(vector_query)
+
+        # Expand IndexNode -> parent section TextNode (full section text) via RecursiveRetriever.
+        # IndexNodes produced by the indexer embed the parent node in `obj` (serialized in the
+        # vector store payload), enabling parent recovery without a separate docstore.
+        node_dict: Dict[str, BaseNode] = {}
+        for nws in vector_nodes_raw:
+            node = getattr(nws, "node", None) or nws
+            if isinstance(node, IndexNode) and isinstance(node.obj, BaseNode):
+                node_dict[node.index_id] = node.obj
+
+        if node_dict:
+            # Ensure every IndexNode has a resolvable target to avoid RecursiveRetriever errors.
+            for nws in vector_nodes_raw:
+                node = getattr(nws, "node", None) or nws
+                if isinstance(node, IndexNode) and node.index_id not in node_dict:
+                    node_dict[node.index_id] = TextNode(
+                        id_=node.index_id,
+                        text=node.get_content(),
+                        metadata=dict(getattr(node, "metadata", {}) or {}),
+                    )
+            vector_nodes: List[NodeWithScore] = RecursiveRetriever(
+                root_id="root",
+                retriever_dict={"root": _FixedRetriever(vector_nodes_raw)},
+                node_dict=node_dict,
+            ).retrieve(vector_query)
+        else:
+            vector_nodes = vector_nodes_raw
 
         bm25, bm25_nodes, _ = _get_bm25()
         bm25_ranked = []
@@ -179,17 +260,45 @@ def build_search_graph(index: VectorStoreIndex):
                 enumerate(scores), key=lambda x: x[1], reverse=True
             )[: max(top_k * 2, 5)]
 
+        # Log raw hits: vector vs keyword (BM25)
+        logger.info(LOG_PREFIX + "[hits.vector] count=%s", len(vector_nodes))
+        for i, obj in enumerate(vector_nodes[: max(top_k * 2, 5)], start=1):
+            base, score = _unwrap_vector_node(obj)
+            meta = _metadata(base)
+            chunk_id = _node_id(base)
+            logger.info(
+                LOG_PREFIX + "[hits.vector] #%s score=%s file=%s chunk_id=%s text=%s",
+                i,
+                score,
+                meta.get("file_name"),
+                chunk_id,
+                _snip(_content(base)),
+            )
+
+        logger.info(LOG_PREFIX + "[hits.bm25] count=%s", len(bm25_ranked))
+        for i, (idx, score) in enumerate(bm25_ranked[: max(top_k * 2, 5)], start=1):
+            item = bm25_nodes[idx]
+            logger.info(
+                LOG_PREFIX + "[hits.bm25] #%s score=%s file=%s chunk_id=%s text=%s",
+                i,
+                float(score),
+                item.get("file_name"),
+                item.get("id"),
+                _snip(item.get("text") or ""),
+            )
+
         fused: Dict[str, dict] = {}
         rrf_k = 60.0
 
-        for rank, node in enumerate(vector_nodes, start=1):
-            node_id = getattr(node, "node_id", None) or getattr(node, "id_", None) or str(rank)
-            metadata = getattr(node, "metadata", {}) or {}
+        for rank, obj in enumerate(vector_nodes, start=1):
+            base, _score = _unwrap_vector_node(obj)
+            node_id = _node_id(base)
+            metadata = _metadata(base)
             item = fused.setdefault(
                 node_id,
                 {
                     "score": 0.0,
-                    "text": node.get_content() if hasattr(node, "get_content") else str(node),
+                    "text": _content(base),
                     "file_name": metadata.get("file_name"),
                     "file_id": metadata.get("file_id"),
                     "source_path": metadata.get("stored_path"),
@@ -201,23 +310,39 @@ def build_search_graph(index: VectorStoreIndex):
 
         for rank, (idx, _score) in enumerate(bm25_ranked, start=1):
             n = bm25_nodes[idx]
-            node_id = n["id"]
+            node_id = n.get("parent_id") or n["id"]
+            text_for_llm = n.get("parent_text") or n.get("text") or ""
             item = fused.setdefault(
                 node_id,
                 {
                     "score": 0.0,
-                    "text": n["text"],
+                    "text": text_for_llm,
                     "file_name": n["file_name"],
                     "file_id": n["file_id"],
                     "source_path": n["stored_path"],
                     "order_idx": n.get("order_idx"),
-                    "chunk_id": n["id"],
+                    "chunk_id": node_id,
                 },
             )
             item["score"] += 1.0 / (rrf_k + rank)
 
         results = sorted(fused.values(), key=lambda x: x["score"], reverse=True)[: max(top_k * 2, 6)]
         merged = _merge_results(results)
+
+        try:
+            logger.info(LOG_PREFIX + "[hits.final] count=%s", len(merged[:top_k]))
+            for i, item in enumerate(merged[:top_k], start=1):
+                logger.info(
+                    LOG_PREFIX + "[hits.final] #%s score=%s file=%s chunk_id=%s text=%s",
+                    i,
+                    item.get("score"),
+                    item.get("file_name"),
+                    item.get("chunk_id"),
+                    _snip(item.get("text") or ""),
+                )
+        except Exception:
+            pass
+
         return {"results": merged[:top_k]}
 
     graph = StateGraph(SearchState)
