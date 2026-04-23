@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import logging
 from pathlib import Path
 from uuid import uuid4
 
@@ -45,12 +46,15 @@ from .settings import (
     CHAT_SUMMARY_WINDOW,
     CHAT_WARN_RATIO,
     CHAT_MAX_SESSIONS,
+    SEARCH_LLM_TOP_K,
 )
 from llama_index.core import Settings
 import os
 import asyncio
 import json
 import re
+
+logger = logging.getLogger("knowledge-lib.main")
 
 ALLOWED_EXTS = {".pdf", ".docx"}
 
@@ -70,7 +74,7 @@ app.add_middleware(
 
 class SearchRequest(BaseModel):
     query: str
-    top_k: int = 5
+    top_k: int = SEARCH_LLM_TOP_K
     chat_id: str | None = None
 
 
@@ -542,18 +546,31 @@ async def search_stream(request: SearchRequest):
                 }
             )
             if used_results:
-                add_citations(
-                    assistant_message_id,
-                    [
+                valid_citations = []
+                invalid_chunk_ids = []
+                for rank, item in enumerate(used_results, start=1):
+                    chunk_id = item.get("chunk_id") or item.get("id")
+                    if not chunk_id:
+                        continue
+                    if get_chunk_by_id(chunk_id) is None:
+                        invalid_chunk_ids.append(chunk_id)
+                        continue
+                    valid_citations.append(
                         {
-                            "chunk_id": item.get("chunk_id") or item.get("id"),
+                            "chunk_id": chunk_id,
                             "quote_text": item.get("text") or "",
                             "rank": rank,
                             "score": item.get("score"),
                         }
-                        for rank, item in enumerate(used_results, start=1)
-                        if item.get("chunk_id") or item.get("id")
-                    ],
+                    )
+                if invalid_chunk_ids:
+                    logger.warning(
+                        "----logger   [citations] skipped invalid chunk ids: %s",
+                        invalid_chunk_ids,
+                    )
+                add_citations(
+                    assistant_message_id,
+                    valid_citations,
                 )
             _enforce_chat_limits(chat_id)
             touch_chat(chat_id)

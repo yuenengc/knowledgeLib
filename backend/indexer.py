@@ -84,6 +84,43 @@ def _excluded_embed_metadata_keys(metadata: dict, keep: set[str]) -> list[str]:
     return sorted(excluded)
 
 
+def _is_toc_section(section: dict) -> bool:
+    title = str(section.get("title") or "").strip()
+    leaf_title = str(section.get("leaf_title") or "").strip()
+    text = "\n".join(str(x).strip() for x in (section.get("chunks") or []) if str(x).strip())
+    chunks = [str(x).strip() for x in (section.get("chunks") or []) if str(x).strip()]
+    normalized_title = title.replace(" ", "")
+    normalized_leaf = leaf_title.replace(" ", "")
+    if "目录" in normalized_title or "目录" in normalized_leaf:
+        return True
+    if not text:
+        return True
+    if chunks and chunks[0].replace(" ", "") in {"目录", "目 录".replace(" ", "")}:
+        toc_like_lines = 0
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        for line in lines[1:31]:
+            if re.search(r"(\.{2,}|·{2,}|…{2,})\s*\d+$", line):
+                toc_like_lines += 1
+            elif re.match(r"^\d+(\.\d+)*\s*[\.\、]?\s*\S+", line):
+                toc_like_lines += 1
+            elif len(line) <= 30 and any(ch.isdigit() for ch in line):
+                toc_like_lines += 1
+        if len(lines) > 1 and toc_like_lines >= max(2, (len(lines) - 1) // 2):
+            return True
+    toc_like_lines = 0
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for line in lines[:30]:
+        if re.search(r"(\.{2,}|·{2,}|…{2,})\s*\d+$", line):
+            toc_like_lines += 1
+        elif re.match(r"^\d+(\.\d+)*\s*[\.\、]?\s*\S+", line):
+            toc_like_lines += 1
+        elif len(line) <= 30 and any(ch.isdigit() for ch in line):
+            toc_like_lines += 1
+    if lines and toc_like_lines >= max(2, len(lines) // 2):
+        return True
+    return False
+
+
 def _build_vector_store() -> ChromaVectorStore:
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
     collection = client.get_or_create_collection(_COLLECTION_NAME)
@@ -238,6 +275,12 @@ def load_documents(file_path: Path, metadata: dict) -> list:
         sections = _split_html_by_headings(html_text) if html_text else []
         docs = []
         for idx, sec in enumerate(sections):
+            if _is_toc_section(sec):
+                # Skip table-of-contents style sections so they do not pollute retrieval.
+                print(
+                    f"[indexer] skip toc section idx={idx} title={sec.get('title')} leaf={sec.get('leaf_title')} first_chunk={((sec.get('chunks') or [''])[0])}"
+                )
+                continue
             text = f"{sec['title']}\n{'\n'.join(sec['chunks'])}".strip()
             if not text:
                 continue

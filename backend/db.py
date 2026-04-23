@@ -473,10 +473,8 @@ def list_chunks() -> list[dict]:
             FROM chunks c
             LEFT JOIN files f ON f.id = c.file_id
             LEFT JOIN chunks p ON p.id = c.parent_id
-            WHERE (c.parent_id IS NOT NULL OR c.id NOT LIKE ?)
+            WHERE c.parent_id IS NOT NULL
             """
-            ,
-            (f"{_PARENT_ID_PREFIX}%",),
         ).fetchall()
     return [
         {
@@ -501,11 +499,11 @@ def list_chunks_by_file_id(file_id: str, limit: int = 3) -> list[dict]:
             FROM chunks c
             LEFT JOIN files f ON f.id = c.file_id
             WHERE c.file_id = ?
-              AND (c.parent_id IS NOT NULL OR c.id NOT LIKE ?)
+              AND c.parent_id IS NOT NULL
             ORDER BY c.order_idx ASC
             LIMIT ?
             """,
-            (file_id, f"{_PARENT_ID_PREFIX}%", limit),
+            (file_id, limit),
         ).fetchall()
     return [
         {
