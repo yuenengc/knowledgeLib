@@ -57,6 +57,7 @@ import re
 logger = logging.getLogger("knowledge-lib.main")
 
 ALLOWED_EXTS = {".pdf", ".docx"}
+NO_RESULTS_MESSAGE = "未找到相关信息"
 
 app = FastAPI(title="Enterprise Knowledge Base")
 
@@ -516,6 +517,17 @@ async def search_stream(request: SearchRequest):
     async def event_gen():
         yield _sse("results", {"results": results})
         if not results:
+            if chat_id:
+                add_message(
+                    {
+                        "id": assistant_message_id,
+                        "chat_id": chat_id,
+                        "role": "assistant",
+                        "content": NO_RESULTS_MESSAGE,
+                    }
+                )
+                _enforce_chat_limits(chat_id)
+                touch_chat(chat_id)
             yield _sse("done", {"usage": {}})
             return
 

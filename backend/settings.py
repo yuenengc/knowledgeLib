@@ -17,6 +17,13 @@ from llama_index.llms.openai import OpenAI
 from llama_index.embeddings.fastembed import FastEmbedEmbedding
 
 
+ROOT_DIR = Path(__file__).resolve().parent
+
+# Load .env before computing any path defaults so CHROMA_DIR / DATA_DIR can be
+# overridden from the environment at process start.
+load_dotenv(dotenv_path=ROOT_DIR / ".env")
+
+
 def _env(name: str, default: str | None = None) -> str | None:
     value = os.getenv(name)
     if value is None or value.strip() == "":
@@ -78,7 +85,8 @@ def configure_llm() -> None:
             api_key=api_key,
             api_base=api_base,
             model=model,
-            temperature=0.1,
+            temperature=0,
+            top_p=1,
             http_client=http_client,
         )
         _LLM_CONFIG["llm_class"] = "OpenAILike"
@@ -87,7 +95,8 @@ def configure_llm() -> None:
             api_key=api_key,
             api_base=api_base,
             model=model,
-            temperature=0.1,
+            temperature=0,
+            top_p=1,
             http_client=http_client,
         )
         _LLM_CONFIG["llm_class"] = "OpenAI"
@@ -112,8 +121,6 @@ def get_llm_config() -> dict:
 def get_embed_query_prefix() -> str | None:
     return _EMBED_QUERY_PREFIX
 
-
-ROOT_DIR = Path(__file__).resolve().parent
 
 def _default_data_dir() -> Path:
     # On some Windows/networked drives, SQLite file locking can fail (disk I/O error).

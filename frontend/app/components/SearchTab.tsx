@@ -17,6 +17,7 @@ type SearchTabProps = {
   onSearch: () => void;
   onSearchKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   searching: boolean;
+  searchDone: boolean;
   searchError: string | null;
   warning?: string | null;
   onCitationClick?: (chunkId: string, messageId?: string) => void;
@@ -35,6 +36,7 @@ export default function SearchTab({
   onSearch,
   onSearchKeyDown,
   searching,
+  searchDone,
   searchError,
   warning,
   onCitationClick,
@@ -260,6 +262,8 @@ export default function SearchTab({
                         <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
                         生成中...
                       </div>
+                    ) : searchDone ? (
+                      <span className="text-slate-400">未找到相关信息</span>
                     ) : (
                       <span className="text-slate-400">等待响应...</span>
                     )

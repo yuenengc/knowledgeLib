@@ -513,6 +513,7 @@ export default function Home() {
               }
             }}
             searching={searching}
+            searchDone={searchDone}
             searchError={searchError}
             warning={warning}
             onCitationClick={(ref, messageId) => {

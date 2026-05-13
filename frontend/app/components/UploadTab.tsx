@@ -88,16 +88,15 @@ export default function UploadTab({
     <div className="space-y-4">
       <div>
         <h3 className="text-xs font-semibold text-slate-900">文件上传</h3>
-        <p className="text-xs text-slate-500">支持 PDF / Word / PPT</p>
+        <p className="text-xs text-slate-500">支持 Word / PDF</p>
       </div>
 
       <div className="flex flex-col gap-3">
         <div
-          className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed px-6 py-7 text-center transition ${
-            isDragging
-              ? "border-slate-500 bg-[#F3F6FB]"
-              : "border-slate-200 bg-[#F9FAFB] hover:border-slate-300"
-          }`}
+          className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed px-6 py-7 text-center transition ${isDragging
+            ? "border-slate-500 bg-[#F3F6FB]"
+            : "border-slate-200 bg-[#F9FAFB] hover:border-slate-300"
+            }`}
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onDragEnter={handleDragEnter}
@@ -119,7 +118,7 @@ export default function UploadTab({
             点击或者将文件拖拽到此处上传
           </div>
           <div className="mt-2 text-[12px] text-slate-400">
-            支持 PDF, Docx, Markdown, TXT (单个文件不超过 50MB)
+            支持 PDF, Docx
           </div>
           <input
             id="upload-input"
@@ -206,9 +205,8 @@ export default function UploadTab({
           return (
             <div
               key={file.id}
-              className={`grid grid-cols-[1.2fr_0.9fr_40px] gap-2 border-b border-slate-100 px-3 py-2 text-xs last:border-b-0 ${
-                isActive ? "bg-slate-50" : "bg-white"
-              }`}
+              className={`grid grid-cols-[1.2fr_0.9fr_40px] gap-2 border-b border-slate-100 px-3 py-2 text-xs last:border-b-0 ${isActive ? "bg-slate-50" : "bg-white"
+                }`}
             >
               <button
                 className="truncate text-left font-medium text-slate-900"
