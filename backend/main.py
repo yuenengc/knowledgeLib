@@ -61,12 +61,20 @@ NO_RESULTS_MESSAGE = "未找到相关信息"
 
 app = FastAPI(title="Enterprise Knowledge Base")
 
-_cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
+_cors_origins = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:3000,https://knowledge-lib-git-lowrambranch-ellens-projects-86a09ee4.vercel.app",
+)
 allow_origins = [o.strip() for o in _cors_origins.split(",") if o.strip()]
+_cors_origin_regex = os.getenv(
+    "CORS_ORIGIN_REGEX",
+    r"^https://.*\.vercel\.app$",
+)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
+    allow_origin_regex=_cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
