@@ -29,11 +29,6 @@ from .settings import (
     SEARCH_RERANK_MODEL,
 )
 
-try:
-    from sentence_transformers import CrossEncoder
-except Exception:  # pragma: no cover - optional dependency fallback
-    CrossEncoder = None  # type: ignore
-
 logger = logging.getLogger("knowledge-lib.search")
 LOG_PREFIX = "----logger   "
 _RERANKER = None
@@ -140,7 +135,13 @@ def build_search_graph(index: VectorStoreIndex):
 
     def _get_reranker():
         global _RERANKER
-        if _RERANKER is None and CrossEncoder is not None:
+        if os.getenv("DISABLE_RERANKER", "").strip().lower() in {"1", "true", "yes"}:
+            return None
+        if _RERANKER is None:
+            try:
+                from sentence_transformers import CrossEncoder
+            except Exception:  # pragma: no cover - optional dependency fallback
+                return None
             _RERANKER = CrossEncoder(SEARCH_RERANK_MODEL)
         return _RERANKER
 

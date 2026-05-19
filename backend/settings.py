@@ -14,7 +14,6 @@ except Exception:
     OpenAILike = None  # type: ignore
     _OPENAI_LIKE_AVAILABLE = False
 from llama_index.llms.openai import OpenAI
-from llama_index.embeddings.fastembed import FastEmbedEmbedding
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -34,6 +33,7 @@ def _env(name: str, default: str | None = None) -> str | None:
 LLM_ENABLED = False
 _LLM_CONFIG: dict[str, str | None] = {"api_base": None, "model": None, "llm_class": None}
 _EMBED_QUERY_PREFIX: str | None = None
+_EMBED_MODEL_CONFIGURED = False
 CHAT_MAX_MESSAGES = int(_env("CHAT_MAX_MESSAGES", "20") or 20)
 CHAT_MAX_TOKENS = int(_env("CHAT_MAX_TOKENS", "4000") or 4000)
 CHAT_SUMMARY_WINDOW = int(_env("CHAT_SUMMARY_WINDOW", "10") or 10)
@@ -53,6 +53,7 @@ def configure_llm() -> None:
     global LLM_ENABLED
     global _LLM_CONFIG
     global _EMBED_QUERY_PREFIX
+    global _EMBED_MODEL_CONFIGURED
     load_dotenv(dotenv_path=ROOT_DIR / ".env")
 
     api_key = _env("DEEPSEEK_API_KEY")
@@ -62,8 +63,12 @@ def configure_llm() -> None:
     _EMBED_QUERY_PREFIX = _env("EMBED_QUERY_PREFIX")
     _LLM_CONFIG = {"api_base": api_base, "model": model, "llm_class": None}
 
-    # Always set local embedding model, even if LLM is not configured.
-    Settings.embed_model = FastEmbedEmbedding(model_name=embed_model)
+    if not _EMBED_MODEL_CONFIGURED:
+        # Import lazily so the heavy embedding backend is only loaded when needed.
+        from llama_index.embeddings.fastembed import FastEmbedEmbedding
+
+        Settings.embed_model = FastEmbedEmbedding(model_name=embed_model)
+        _EMBED_MODEL_CONFIGURED = True
 
     if not api_key:
         LLM_ENABLED = False

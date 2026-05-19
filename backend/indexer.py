@@ -2,10 +2,6 @@
 
 from pathlib import Path
 from typing import Iterable, Tuple
-try:
-    import camelot
-except Exception:
-    camelot = None
 
 import chromadb
 import mammoth
@@ -149,7 +145,9 @@ def get_index() -> VectorStoreIndex:
 
 
 def _extract_pdf_tables(file_path: Path) -> list[str]:
-    if camelot is None:
+    try:
+        import camelot
+    except Exception:
         return []
     try:
         tables = camelot.read_pdf(str(file_path), pages="all", flavor="lattice")

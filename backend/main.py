@@ -105,7 +105,6 @@ async def ensure_initialized() -> None:
         if _initialized:
             return
         init_db()
-        configure_llm()
         _initialized = True
 
 
@@ -182,6 +181,7 @@ async def delete_file(file_id: str) -> dict:
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)) -> dict:
     await ensure_initialized()
+    configure_llm()
     ext = Path(file.filename).suffix.lower()
     if ext not in ALLOWED_EXTS:
         raise HTTPException(status_code=400, detail="Unsupported file type")
@@ -490,6 +490,7 @@ async def search_stream(request: SearchRequest):
         raise HTTPException(status_code=400, detail="Query is required")
 
     await ensure_initialized()
+    configure_llm()
     chat_id = request.chat_id
     assistant_message_id = str(uuid4())
     if chat_id:
