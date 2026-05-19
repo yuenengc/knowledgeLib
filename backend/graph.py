@@ -12,13 +12,12 @@ import threading
 from langgraph.graph import StateGraph, END
 from llama_index.core import VectorStoreIndex
 from llama_index.core.base.base_retriever import BaseRetriever
-from llama_index.core.retrievers import RecursiveRetriever
 from rank_bm25 import BM25Okapi
 import jieba
 import httpx
-from llama_index.core.schema import BaseNode, IndexNode, NodeWithScore, QueryBundle, TextNode
+from llama_index.core.schema import IndexNode, NodeWithScore, QueryBundle
 
-from .db import list_chunks
+from .db import get_chunk_by_id, list_chunks
 from .settings import (
     is_llm_enabled,
     get_embed_query_prefix,
@@ -52,6 +51,7 @@ class SearchState(TypedDict):
     query: str
     top_k: int
     results: List[dict]
+    stage_results: dict
 
 
 def _build_prompt(query: str, results: List[dict]) -> Tuple[str, str]:
@@ -199,10 +199,46 @@ def build_search_graph(index: VectorStoreIndex):
                     "file_id": item.get("file_id"),
                     "source_path": item.get("source_path"),
                     "chunk_id": item.get("chunk_id"),
+                    "parent_id": item.get("parent_id"),
                 }
             )
 
         return sorted(merged, key=lambda x: x["score"], reverse=True)
+
+    def _expand_to_parent_results(items: List[dict]) -> List[dict]:
+        expanded: List[dict] = []
+        seen_parent_ids = set()
+        parent_cache: Dict[str, dict | None] = {}
+
+        def _parent_for(item: dict) -> dict:
+            parent_id = item.get("parent_id") or item.get("chunk_id")
+            if not parent_id:
+                return item
+            if parent_id not in parent_cache:
+                parent_cache[parent_id] = get_chunk_by_id(parent_id)
+            parent = parent_cache[parent_id]
+            if not parent:
+                return item
+            return {
+                **item,
+                "chunk_id": parent["id"],
+                "text": parent.get("text") or item.get("text") or "",
+                "order_idx": parent.get("order_idx"),
+                "file_id": parent.get("file_id") or item.get("file_id"),
+                "file_name": parent.get("file_name") or item.get("file_name"),
+                "source_path": parent.get("stored_path") or item.get("source_path"),
+                "parent_id": parent["id"],
+            }
+
+        for item in items:
+            parent_item = _parent_for(item)
+            parent_key = parent_item.get("chunk_id") or parent_item.get("parent_id")
+            if not parent_key or parent_key in seen_parent_ids:
+                continue
+            seen_parent_ids.add(parent_key)
+            expanded.append(parent_item)
+
+        return expanded
 
     def _extract_text(value) -> str:
         if value is None:
@@ -278,30 +314,9 @@ def build_search_graph(index: VectorStoreIndex):
             meta = getattr(base, "metadata", None)
             return meta if isinstance(meta, dict) else {}
 
-        def _content(base) -> str:
-            if isinstance(base, IndexNode):
-                obj = getattr(base, "obj", None)
-                extracted = _extract_text(obj)
-                if extracted:
-                    return extracted
+        def _child_content(base) -> str:
             text = getattr(base, "text", None)
-            if text:
-                extracted = _extract_text(text)
-                if extracted:
-                    return extracted
-            if hasattr(base, "get_content"):
-                try:
-                    content = base.get_content()
-                    extracted = _extract_text(content)
-                    if extracted and extracted != str(base):
-                        return extracted
-                except Exception:
-                    pass
-            obj = getattr(base, "obj", None)
-            extracted = _extract_text(obj)
-            if extracted:
-                return extracted
-            return str(base)
+            return text.strip() if isinstance(text, str) and text.strip() else ""
 
         logger.info(
             LOG_PREFIX + "[retrieve] query=%s vector_query=%s top_k=%s",
@@ -356,35 +371,42 @@ def build_search_graph(index: VectorStoreIndex):
 
         # Log raw hits: vector vs keyword (BM25)
         logger.info(LOG_PREFIX + "[hits.vector] count=%s", len(vector_nodes))
+        vector_stage_results: List[dict] = []
         for i, obj in enumerate(vector_nodes[:SEARCH_VECTOR_TOP_K], start=1):
             base, score = _unwrap_vector_node(obj)
             meta = _metadata(base)
+            item = {
+                "score": score,
+                "file_id": meta.get("file_id"),
+                "file_name": meta.get("file_name"),
+                "chunk_id": _node_id(base),
+                "parent_id": meta.get("parent_id"),
+                "text": _child_content(base),
+            }
+            vector_stage_results.append(item)
             _log_hit(
                 "vector",
                 i,
-                {
-                    "score": score,
-                    "file_id": meta.get("file_id"),
-                    "file_name": meta.get("file_name"),
-                    "chunk_id": meta.get("parent_id") or _node_id(base),
-                    "text": _content(base),
-                },
+                item,
                 extra=f" type={type(base).__name__}",
             )
 
         logger.info(LOG_PREFIX + "[hits.bm25] count=%s", len(bm25_ranked))
+        bm25_stage_results: List[dict] = []
         for i, (idx, score) in enumerate(bm25_ranked[:SEARCH_BM25_TOP_K], start=1):
             item = bm25_nodes[idx]
+            stage_item = {
+                "score": float(score),
+                "file_id": item.get("file_id"),
+                "file_name": item.get("file_name"),
+                "chunk_id": item.get("id"),
+                "text": item.get("text") or "",
+            }
+            bm25_stage_results.append(stage_item)
             _log_hit(
                 "bm25",
                 i,
-                {
-                    "score": float(score),
-                    "file_id": item.get("file_id"),
-                    "file_name": item.get("file_name"),
-                    "chunk_id": item.get("id"),
-                    "text": item.get("text") or "",
-                },
+                stage_item,
             )
 
         fused: Dict[str, dict] = {}
@@ -394,35 +416,37 @@ def build_search_graph(index: VectorStoreIndex):
         for rank, obj in enumerate(vector_nodes, start=1):
             base, _score = _unwrap_vector_node(obj)
             metadata = _metadata(base)
-            source_chunk_id = metadata.get("parent_id") or _node_id(base)
+            source_chunk_id = _node_id(base)
             item = fused.setdefault(
                 source_chunk_id,
                 {
                     "score": 0.0,
-                    "text": _content(base),
+                    "text": _child_content(base),
                     "file_name": metadata.get("file_name"),
                     "file_id": metadata.get("file_id"),
                     "source_path": metadata.get("stored_path"),
                     "order_idx": metadata.get("order_idx"),
                     "chunk_id": source_chunk_id,
+                    "parent_id": metadata.get("parent_id"),
                 },
             )
             item["score"] += 1.0 / (rrf_k + rank)
 
         for rank, (idx, _score) in enumerate(bm25_ranked, start=1):
             n = bm25_nodes[idx]
-            node_id = n.get("parent_id") or n["id"]
-            text_for_llm = n.get("parent_text") or n.get("text") or ""
+            node_id = n["id"]
+            text_for_rrf = n.get("text") or ""
             item = fused.setdefault(
                 node_id,
                 {
                     "score": 0.0,
-                    "text": text_for_llm,
+                    "text": text_for_rrf,
                     "file_name": n["file_name"],
                     "file_id": n["file_id"],
                     "source_path": n["stored_path"],
                     "order_idx": n.get("order_idx"),
                     "chunk_id": node_id,
+                    "parent_id": n.get("parent_id"),
                 },
             )
             item["score"] += 1.0 / (rrf_k + rank)
@@ -431,6 +455,7 @@ def build_search_graph(index: VectorStoreIndex):
         logger.info(LOG_PREFIX + "[timing.retrieve] rrf_fusion_ms=%.1f candidates=%s", (time.perf_counter() - stage_t0) * 1000, len(rrf_candidates))
 
         logger.info(LOG_PREFIX + "[hits.rrf] count=%s", len(rrf_candidates))
+        rrf_stage_results = [dict(item) for item in rrf_candidates]
         for i, item in enumerate(rrf_candidates, start=1):
             _log_hit("rrf", i, item)
 
@@ -454,6 +479,7 @@ def build_search_graph(index: VectorStoreIndex):
             reranked = [item for item in reranked if item["rerank_score"] >= SEARCH_RERANK_THRESHOLD]
 
         logger.info(LOG_PREFIX + "[hits.rerank] count=%s", len(reranked))
+        rerank_stage_results = [dict(item) for item in reranked]
         for i, item in enumerate(reranked, start=1):
             _log_hit("rerank", i, item)
 
@@ -461,17 +487,30 @@ def build_search_graph(index: VectorStoreIndex):
         merged = _merge_results(reranked[:SEARCH_RERANK_TOP_K])
         logger.info(LOG_PREFIX + "[timing.retrieve] merge_ms=%.1f merged=%s", (time.perf_counter() - stage_t0) * 1000, len(merged))
 
+        llm_results = merged[:SEARCH_LLM_TOP_K]
         try:
-            llm_results = merged[:SEARCH_LLM_TOP_K]
+            llm_results = _expand_to_parent_results(llm_results)
             logger.info(LOG_PREFIX + "[hits.llm] count=%s", len(llm_results))
+            llm_stage_results = []
+            for item in llm_results:
+                llm_item = dict(item)
+                llm_item["expansion"] = "parent-expanded"
+                llm_stage_results.append(llm_item)
             for i, item in enumerate(llm_results, start=1):
                 _log_hit("llm", i, item)
         except Exception:
+            llm_stage_results = []
             pass
-
-        results = merged[:SEARCH_LLM_TOP_K]
-        logger.info(LOG_PREFIX + "[timing.retrieve] total_ms=%.1f results=%s", (time.perf_counter() - retrieve_t0) * 1000, len(results))
-        return {"results": results}
+        return {
+                    "results": llm_results,
+                    "stage_results": {
+                        "vector": vector_stage_results,
+                        "bm25": bm25_stage_results,
+                        "rrf": rrf_stage_results,
+                        "rerank": rerank_stage_results,
+                        "llm": llm_stage_results,
+                    },
+                }
 
     graph = StateGraph(SearchState)
     graph.add_node("retrieve", retrieve)

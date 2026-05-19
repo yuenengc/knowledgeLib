@@ -273,7 +273,7 @@ export default function SearchTab({
                         生成中...
                       </div>
                     ) : searchDone ? (
-                      <span className="text-slate-400">未找到相关信息</span>
+                      <span className="text-slate-500">未找到相关信息</span>
                     ) : (
                       <span className="text-slate-400">等待响应...</span>
                     )
