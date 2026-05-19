@@ -102,25 +102,33 @@ export default function SearchTab({
           {children}
         </blockquote>
       ),
-      code: ({ inline, children, ...props }) =>
-        inline ? (
+      code: ({ className, children, ...props }) => {
+        const isBlock = Boolean(className?.includes("language-"));
+        return isBlock ? (
+          <pre className="overflow-x-auto rounded-lg bg-slate-100 p-3 text-[12px] text-slate-600">
+            <code className={className} {...props}>
+              {children}
+            </code>
+          </pre>
+        ) : (
           <code className="rounded-md bg-slate-100 px-1 py-0.5 text-[12px] text-slate-600" {...props}>
             {children}
           </code>
-        ) : (
-          <pre className="overflow-x-auto rounded-lg bg-slate-100 p-3 text-[12px] text-slate-600">
-            <code {...props}>{children}</code>
-          </pre>
-        ),
+        );
+      },
       a: ({ href, children, ...props }) => (
-        <button
-          className="cursor-pointer bg-transparent p-0 text-blue-700 underline underline-offset-2"
-          type="button"
+        <a
+          className="cursor-pointer text-blue-700 underline underline-offset-2"
           data-href={href}
+          href={href || "#"}
+          onClick={(event) => {
+            if (!href?.startsWith("source:")) return;
+            event.preventDefault();
+          }}
           {...props}
         >
           {children}
-        </button>
+        </a>
       ),
     }),
     [onCitationClick]
