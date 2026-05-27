@@ -7,6 +7,7 @@ type UploadTabProps = {
   onFileChange: (file: File | null) => void;
   onUpload: () => void;
   uploading: boolean;
+  uploadPhase: "idle" | "processing" | "done";
   uploadStatus: string | null;
   uploadError: string | null;
   files: FileItem[];
@@ -39,6 +40,7 @@ export default function UploadTab({
   onFileChange,
   onUpload,
   uploading,
+  uploadPhase,
   uploadStatus,
   uploadError,
   files,
@@ -54,6 +56,28 @@ export default function UploadTab({
   deleteError,
 }: UploadTabProps) {
   const [isDragging, setIsDragging] = useState(false);
+
+  const renderStatusBadge = (status?: FileItem["status"]) => {
+    if (status === "processing") {
+      return (
+        <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+          处理中
+        </span>
+      );
+    }
+    if (status === "error") {
+      return (
+        <span className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700">
+          失败
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+        已完成
+      </span>
+    );
+  };
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -145,7 +169,12 @@ export default function UploadTab({
         </button>
       </div>
 
-      {uploadStatus && (
+      {uploadStatus && uploadPhase === "processing" && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {uploadStatus}
+        </div>
+      )}
+      {uploadStatus && uploadPhase === "done" && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
           {uploadStatus}
         </div>
@@ -191,8 +220,9 @@ export default function UploadTab({
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white">
-        <div className="grid grid-cols-[1.2fr_0.9fr_40px] gap-2 border-b border-slate-200/70 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-500">
+        <div className="grid grid-cols-[1.2fr_0.7fr_0.9fr_40px] gap-2 border-b border-slate-200/70 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-500">
           <div>文件名</div>
+          <div>状态</div>
           <div>上传时间</div>
           <div className="text-center">操作</div>
         </div>
@@ -205,7 +235,7 @@ export default function UploadTab({
           return (
             <div
               key={file.id}
-              className={`grid grid-cols-[1.2fr_0.9fr_40px] gap-2 border-b border-slate-100 px-3 py-2 text-xs last:border-b-0 ${isActive ? "bg-slate-50" : "bg-white"
+              className={`grid grid-cols-[1.2fr_0.7fr_0.9fr_40px] gap-2 border-b border-slate-100 px-3 py-2 text-xs last:border-b-0 ${isActive ? "bg-slate-50" : "bg-white"
                 }`}
             >
               <button
@@ -215,6 +245,7 @@ export default function UploadTab({
               >
                 {file.filename}
               </button>
+              <div>{renderStatusBadge(file.status)}</div>
               <div className="text-[11px] text-slate-500">{formatTimestamp(file.uploaded_at)}</div>
               <button
                 className="inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-red-500 disabled:cursor-not-allowed"

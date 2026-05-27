@@ -3,6 +3,7 @@ export type FileItem = {
   filename: string;
   stored_path: string;
   uploaded_at: string;
+  status?: "processing" | "ready" | "error";
 };
 
 export type SearchResult = {

@@ -23,6 +23,10 @@
         value: /var/data/uploads
       - key: CHROMA_DIR
         value: /var/data/chroma
+      - key: CORS_ORIGINS
+        value: http://localhost:3000,https://knowledge-lib-git-lowrambranch-ellens-projects-86a09ee4.vercel.app
+      - key: CORS_ORIGIN_REGEX
+        value: ^https://.*\.vercel\.app$
     disk:
       name: knowledge-lib-data
       mountPath: /var/data

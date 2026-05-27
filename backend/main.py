@@ -5,17 +5,16 @@ import logging
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from .db import (
     init_db,
     add_file,
     list_files,
-    add_chunks,
-    get_files_by_name,
     list_chunk_ids_by_file_ids,
     delete_chunks_by_file_ids,
     delete_files_by_ids,
@@ -35,7 +34,7 @@ from .db import (
     clear_all_tables,
 )
 from .graph import run_search, stream_answer
-from .indexer import build_nodes, get_index, insert_nodes, load_documents, delete_nodes_by_ids, clear_vector_store
+from .indexer import get_index, delete_nodes_by_ids, clear_vector_store
 from .settings import (
     UPLOAD_DIR,
     configure_llm,
@@ -48,12 +47,18 @@ from .settings import (
     CHAT_MAX_SESSIONS,
     SEARCH_LLM_TOP_K,
 )
+from .task_manager import create_task, get_task
+from .upload_worker import enqueue_uploaded_file_processing
 from llama_index.core import Settings
 import os
 import asyncio
 import json
 import re
 
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 logger = logging.getLogger("knowledge-lib.main")
 
 ALLOWED_EXTS = {".pdf", ".docx"}
@@ -105,7 +110,9 @@ _initialized = False
 
 
 async def ensure_initialized() -> None:
-    # One-time startup: init DB and LLM config, guarded by async lock.
+    # One-time startup: init lightweight app state only.
+    # Embeddings are initialized lazily by retrieval/ingestion paths so upload can
+    # return a task_id even if the local model cache needs repair.
     global _initialized
     if _initialized:
         return
@@ -116,25 +123,9 @@ async def ensure_initialized() -> None:
         _initialized = True
 
 
-def _remove_previous_versions(filename: str) -> None:
-    # Ensure only the latest version of a filename is kept (DB + vector + disk).
-    existing_files = get_files_by_name(filename)
-    if not existing_files:
-        return
-
-    old_file_ids = [f["id"] for f in existing_files]
-    old_paths = [f["stored_path"] for f in existing_files]
-
-    chunk_ids = list_chunk_ids_by_file_ids(old_file_ids)
-    delete_nodes_by_ids(chunk_ids)
-    delete_chunks_by_file_ids(old_file_ids)
-    delete_files_by_ids(old_file_ids)
-
-    for old_path in old_paths:
-        try:
-            Path(old_path).unlink(missing_ok=True)
-        except Exception:
-            pass
+def _save_upload_file(file: UploadFile, stored_path: Path) -> None:
+    with stored_path.open("wb") as output:
+        shutil.copyfileobj(file.file, output)
 
 
 @app.get("/health")
@@ -186,73 +177,46 @@ async def delete_file(file_id: str) -> dict:
     return {"status": "deleted", "id": file_id, "filename": target["filename"]}
 
 
+@app.get("/task/{task_id}")
+async def task_status(task_id: str) -> dict:
+    task = get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
+
+
 @app.post("/upload")
-async def upload(file: UploadFile = File(...)) -> dict:
+async def upload(background_tasks: BackgroundTasks, file: UploadFile = File(...)) -> dict:
     await ensure_initialized()
-    configure_llm()
-    ext = Path(file.filename).suffix.lower()
+    filename = file.filename or "upload"
+    ext = Path(filename).suffix.lower()
     if ext not in ALLOWED_EXTS:
         raise HTTPException(status_code=400, detail="Unsupported file type")
 
-    # De-duplicate by filename to avoid stale versions in index and storage.
-    _remove_previous_versions(file.filename)
-
     file_id = str(uuid4())
+    task_id = str(uuid4())
     stored_path = UPLOAD_DIR / f"{file_id}{ext}"
+    add_file(file_id, filename, stored_path, status="processing")
+    task = create_task(task_id, filename)
 
-    # Persist raw upload to disk before parsing/indexing.
-    with stored_path.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
+    # Persist raw upload without blocking the event loop.
+    await run_in_threadpool(_save_upload_file, file, stored_path)
 
-    metadata = {
-        "file_name": file.filename,
-        "file_id": file_id,
-        "stored_path": str(stored_path),
+    background_tasks.add_task(
+        enqueue_uploaded_file_processing,
+        task_id=task_id,
+        file_id=file_id,
+        filename=filename,
+        stored_path=stored_path,
+    )
+    logger.info("[task:%s] upload accepted filename=%s file_id=%s", task_id, filename, file_id)
+    return {
+        "id": file_id,
+        "task_id": task_id,
+        "filename": filename,
+        "status": task["status"],
+        "progress": task["progress"],
     }
-
-    try:
-        add_file(file_id, file.filename, stored_path)
-        # Parse file -> documents -> chunks -> vector index + DB.
-        docs = load_documents(stored_path, metadata)
-        if not docs or all(not getattr(doc, "get_content", lambda: "")() for doc in docs):
-            raise HTTPException(
-                status_code=400,
-                detail="Document has no extractable text (encrypted or scanned). Please upload a decrypted or text-based file.",
-            )
-        index = get_index()
-        index_nodes, db_nodes = build_nodes(docs)
-        if not index_nodes or not db_nodes:
-            raise HTTPException(
-                status_code=400,
-                detail="Document produced no text chunks. Please upload a text-based file.",
-            )
-        insert_nodes(index, index_nodes)
-        add_chunks(
-            [
-                {
-                    "id": node.node_id,
-                    "file_id": metadata["file_id"],
-                    "text": node.get_content(),
-                    "order_idx": node.metadata.get("order_idx"),
-                    "parent_id": node.metadata.get("parent_id"),
-                }
-                for node in db_nodes
-            ]
-        )
-    except HTTPException:
-        # Roll back stored file on known validation errors.
-        delete_files_by_ids([file_id])
-        if stored_path.exists():
-            stored_path.unlink(missing_ok=True)
-        raise
-    except Exception:
-        # Roll back stored file on unexpected failures.
-        delete_files_by_ids([file_id])
-        if stored_path.exists():
-            stored_path.unlink(missing_ok=True)
-        raise
-
-    return {"id": file_id, "filename": file.filename}
 
 
 @app.post("/clear")

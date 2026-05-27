@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Iterable, Tuple
 
@@ -17,6 +18,7 @@ from .settings import CHROMA_DIR
 
 _COLLECTION_NAME = "knowledge_base"
 _index: VectorStoreIndex | None = None
+logger = logging.getLogger("knowledge-lib.indexer")
 
 _PARENT_ID_PREFIX = "parent::"
 
@@ -275,8 +277,12 @@ def load_documents(file_path: Path, metadata: dict) -> list:
         for idx, sec in enumerate(sections):
             if _is_toc_section(sec):
                 # Skip table-of-contents style sections so they do not pollute retrieval.
-                print(
-                    f"[indexer] skip toc section idx={idx} title={sec.get('title')} leaf={sec.get('leaf_title')} first_chunk={((sec.get('chunks') or [''])[0])}"
+                logger.info(
+                    "[indexer] skip toc section idx=%s title=%s leaf=%s first_chunk=%s",
+                    idx,
+                    sec.get("title"),
+                    sec.get("leaf_title"),
+                    (sec.get("chunks") or [""])[0],
                 )
                 continue
             text = f"{sec['title']}\n{'\n'.join(sec['chunks'])}".strip()

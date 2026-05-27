@@ -13,10 +13,19 @@ type ChatSession = {
   title: string;
 };
 
+type UploadTask = {
+  task_id: string;
+  status: "pending" | "parsing" | "chunking" | "embedding" | "storing" | "completed" | "failed";
+  progress: number;
+  filename: string;
+  error: string | null;
+};
+
 export default function UploadPageClient() {
   const searchParams = useSearchParams();
   const [files, setFiles] = useState<FileItem[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadPhase, setUploadPhase] = useState<"idle" | "processing" | "done">("idle");
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -52,6 +61,33 @@ export default function UploadPageClient() {
     }
   };
 
+  const pollUploadTask = async (taskId: string) => {
+    while (true) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      const res = await fetch(`${API_BASE}/task/${taskId}`, { cache: "no-store" });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.detail || "Task status query failed.");
+      }
+
+      const task = (await res.json()) as UploadTask;
+      setUploadPhase("processing");
+      setUploadStatus(`${task.filename}: ${task.status} ${task.progress}%`);
+
+      if (task.status === "completed") {
+        setUploadPhase("done");
+        setUploadStatus(`${task.filename}: completed`);
+        await fetchFiles();
+        return;
+      }
+
+      if (task.status === "failed") {
+        await fetchFiles();
+        throw new Error(task.error || "Upload processing failed.");
+      }
+    }
+  };
+
   useEffect(() => {
     fetchFiles();
     fetchChats();
@@ -73,6 +109,7 @@ export default function UploadPageClient() {
   const handleUpload = async () => {
     setUploadError(null);
     setUploadStatus(null);
+    setUploadPhase("idle");
     setClearStatus(null);
     setClearError(null);
     setDeleteStatus(null);
@@ -99,7 +136,19 @@ export default function UploadPageClient() {
       }
 
       const data = await res.json();
-      setUploadStatus(`上传成功: ${data.filename}`);
+      setUploadPhase("processing");
+      setUploadStatus(`${data.filename}: queued`);
+      setSelectedFile(null);
+      await fetchFiles();
+      await pollUploadTask(data.task_id);
+      return;
+      if (data.status === "processing") {
+        setUploadPhase("processing");
+        setUploadStatus(`已接收：${data.filename}，后台处理中`);
+      } else {
+        setUploadPhase("done");
+        setUploadStatus(`上传成功：${data.filename}`);
+      }
       setSelectedFile(null);
       await fetchFiles();
     } catch (err) {
@@ -134,7 +183,7 @@ export default function UploadPageClient() {
         throw new Error(error.detail || "删除失败");
       }
       const data = await res.json();
-      setDeleteStatus(`已删除: ${data.filename ?? target?.filename ?? "文件"}`);
+      setDeleteStatus(`已删除 ${data.filename ?? target?.filename ?? "文件"}`);
       if (activeFileId === fileId) {
         setActiveFileId(null);
       }
@@ -231,6 +280,7 @@ export default function UploadPageClient() {
             onFileChange={setSelectedFile}
             onUpload={handleUpload}
             uploading={uploading}
+            uploadPhase={uploadPhase}
             uploadStatus={uploadStatus}
             uploadError={uploadError}
             files={files}
