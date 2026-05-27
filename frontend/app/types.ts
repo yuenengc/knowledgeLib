@@ -6,6 +6,15 @@ export type FileItem = {
   status?: "processing" | "ready" | "error";
 };
 
+export type UploadQueueItem = {
+  id: string;
+  filename: string;
+  progress: number;
+  status: "pending" | "uploading" | "processing" | "completed" | "failed";
+  message: string;
+  error: string | null;
+};
+
 export type SearchResult = {
   score: number | null;
   text: string;

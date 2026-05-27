@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import type { FileItem } from "../types";
+import type { FileItem, UploadQueueItem } from "../types";
 import AppShell from "../components/AppShell";
 import UploadTab from "../components/UploadTab";
 
@@ -24,7 +24,8 @@ type UploadTask = {
 export default function UploadPageClient() {
   const searchParams = useSearchParams();
   const [files, setFiles] = useState<FileItem[]>([]);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const [uploadPhase, setUploadPhase] = useState<"idle" | "processing" | "done">("idle");
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -61,7 +62,13 @@ export default function UploadPageClient() {
     }
   };
 
-  const pollUploadTask = async (taskId: string) => {
+  const updateUploadQueueItem = (id: string, patch: Partial<UploadQueueItem>) => {
+    setUploadQueue((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, ...patch } : item))
+    );
+  };
+
+  const pollUploadTask = async (taskId: string, queueItemId: string) => {
     while (true) {
       await new Promise((resolve) => window.setTimeout(resolve, 1500));
       const res = await fetch(`${API_BASE}/task/${taskId}`, { cache: "no-store" });
@@ -73,16 +80,34 @@ export default function UploadPageClient() {
       const task = (await res.json()) as UploadTask;
       setUploadPhase("processing");
       setUploadStatus(`${task.filename}: ${task.status} ${task.progress}%`);
+      updateUploadQueueItem(queueItemId, {
+        filename: task.filename,
+        status: "processing",
+        progress: task.progress,
+        message: task.status,
+        error: null,
+      });
 
       if (task.status === "completed") {
         setUploadPhase("done");
         setUploadStatus(`${task.filename}: completed`);
+        updateUploadQueueItem(queueItemId, {
+          status: "completed",
+          progress: 100,
+          message: "上传完成",
+          error: null,
+        });
         await fetchFiles();
         return;
       }
 
       if (task.status === "failed") {
         await fetchFiles();
+        updateUploadQueueItem(queueItemId, {
+          status: "failed",
+          message: "上传失败",
+          error: task.error || "Upload processing failed.",
+        });
         throw new Error(task.error || "Upload processing failed.");
       }
     }
@@ -115,42 +140,79 @@ export default function UploadPageClient() {
     setDeleteStatus(null);
     setDeleteError(null);
 
-    if (!selectedFile) {
+    if (selectedFiles.length === 0) {
       setUploadError("请先选择文件");
       return;
     }
 
     setUploading(true);
+    const queueItems = selectedFiles.map((file, index) => ({
+      id: `${file.name}-${file.lastModified}-${file.size}-${index}`,
+      filename: file.name,
+      progress: 0,
+      status: "pending" as const,
+      message: "等待上传",
+      error: null,
+    }));
+    setUploadQueue(queueItems);
+
+    let failedCount = 0;
     try {
-      const formData = new FormData();
-      formData.append("file", selectedFile);
+      for (const [index, file] of selectedFiles.entries()) {
+        const queueItem = queueItems[index];
+        updateUploadQueueItem(queueItem.id, {
+          status: "uploading",
+          progress: 0,
+          message: "上传中",
+          error: null,
+        });
 
-      const res = await fetch(`${API_BASE}/upload`, {
-        method: "POST",
-        body: formData,
-      });
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
 
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.detail || "上传失败");
+          const res = await fetch(`${API_BASE}/upload`, {
+            method: "POST",
+            body: formData,
+          });
+
+          if (!res.ok) {
+            const error = await res.json().catch(() => ({}));
+            throw new Error(error.detail || "上传失败");
+          }
+
+          const data = await res.json();
+          setUploadPhase("processing");
+          setUploadStatus(`${data.filename}: queued`);
+          updateUploadQueueItem(queueItem.id, {
+            filename: data.filename || file.name,
+            status: "processing",
+            progress: 0,
+            message: "后台处理中",
+            error: null,
+          });
+          await fetchFiles();
+          await pollUploadTask(data.task_id, queueItem.id);
+        } catch (err) {
+          failedCount += 1;
+          const message = err instanceof Error ? err.message : "上传失败";
+          updateUploadQueueItem(queueItem.id, {
+            status: "failed",
+            message: "上传失败",
+            error: message,
+          });
+        }
       }
 
-      const data = await res.json();
-      setUploadPhase("processing");
-      setUploadStatus(`${data.filename}: queued`);
-      setSelectedFile(null);
+      setSelectedFiles([]);
       await fetchFiles();
-      await pollUploadTask(data.task_id);
-      return;
-      if (data.status === "processing") {
-        setUploadPhase("processing");
-        setUploadStatus(`已接收：${data.filename}，后台处理中`);
+      if (failedCount > 0) {
+        setUploadPhase("done");
+        setUploadError(`上传完成，${failedCount} 个文件失败`);
       } else {
         setUploadPhase("done");
-        setUploadStatus(`上传成功：${data.filename}`);
+        setUploadStatus(`已完成 ${selectedFiles.length} 个文件上传`);
       }
-      setSelectedFile(null);
-      await fetchFiles();
     } catch (err) {
       if (err instanceof Error) {
         setUploadError(err.message || "上传失败");
@@ -276,13 +338,14 @@ export default function UploadPageClient() {
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
           <div className="mb-4 text-sm font-semibold text-slate-900">文件上传与历史</div>
           <UploadTab
-            selectedFile={selectedFile}
-            onFileChange={setSelectedFile}
+            selectedFiles={selectedFiles}
+            onFilesChange={setSelectedFiles}
             onUpload={handleUpload}
             uploading={uploading}
             uploadPhase={uploadPhase}
             uploadStatus={uploadStatus}
             uploadError={uploadError}
+            uploadQueue={uploadQueue}
             files={files}
             onClearAll={handleClearAll}
             clearing={clearing}
