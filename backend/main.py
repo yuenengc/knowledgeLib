@@ -121,6 +121,7 @@ async def ensure_initialized() -> None:
         if _initialized:
             return
         init_db()
+        configure_llm()
         _initialized = True
 
 
@@ -468,7 +469,6 @@ async def search_stream(request: SearchRequest):
     logger.info("----logger   [timing.search_stream] ensure_initialized_ms=%.1f", (time.perf_counter() - stage_t0) * 1000)
 
     stage_t0 = time.perf_counter()
-    configure_llm()
     logger.info("----logger   [timing.search_stream] configure_llm_ms=%.1f", (time.perf_counter() - stage_t0) * 1000)
 
     chat_id = request.chat_id

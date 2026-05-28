@@ -16,6 +16,7 @@ except Exception:
     OpenAILike = None  # type: ignore
     _OPENAI_LIKE_AVAILABLE = False
 from llama_index.llms.openai import OpenAI
+from llama_index.embeddings.fastembed import FastEmbedEmbedding
 
 logger = logging.getLogger("knowledge-lib.settings")
 
@@ -50,7 +51,7 @@ SEARCH_RRF_TOP_K = int(_env("SEARCH_RRF_TOP_K", "5") or 5)
 SEARCH_RERANK_TOP_K = int(_env("SEARCH_RERANK_TOP_K", "4") or 4)
 SEARCH_LLM_TOP_K = int(_env("SEARCH_LLM_TOP_K", "3") or 3)
 SEARCH_RERANK_THRESHOLD = float(_env("SEARCH_RERANK_THRESHOLD", "0.55") or 0.55)
-SEARCH_RERANK_MODEL = _env("SEARCH_RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
+SEARCH_RERANK_MODEL = _env("SEARCH_RERANK_MODEL", "BAAI/bge-reranker-base")
 
 
 def configure_llm() -> None:

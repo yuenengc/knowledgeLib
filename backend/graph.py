@@ -8,8 +8,6 @@ import ast
 import math
 import time
 import threading
-import torch
-import os
 
 from langgraph.graph import StateGraph, END
 from llama_index.core import VectorStoreIndex
@@ -32,6 +30,11 @@ from .settings import (
     SEARCH_RERANK_THRESHOLD,
     SEARCH_RERANK_MODEL,
 )
+
+try:
+    from sentence_transformers import CrossEncoder
+except Exception:  # pragma: no cover - optional dependency fallback
+    CrossEncoder = None  # type: ignore
 
 logger = logging.getLogger("knowledge-lib.search")
 LOG_PREFIX = "----logger   "
@@ -163,14 +166,8 @@ def build_search_graph(index: VectorStoreIndex):
 
     def _get_reranker():
         global _RERANKER
-        if os.getenv("DISABLE_RERANKER", "").strip().lower() in {"1", "true", "yes"}:
-            return None
-        if _RERANKER is None:
+        if _RERANKER is None and CrossEncoder is not None:
             t0 = time.perf_counter()
-            try:
-                from sentence_transformers import CrossEncoder
-            except Exception:  # pragma: no cover - optional dependency fallback
-                return None
             _RERANKER = CrossEncoder(SEARCH_RERANK_MODEL)
             logger.info(LOG_PREFIX + "[timing.reranker] load_ms=%.1f model=%s", (time.perf_counter() - t0) * 1000, SEARCH_RERANK_MODEL)
         return _RERANKER
