@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import logging
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -457,15 +458,23 @@ async def add_chat_message(chat_id: str, payload: AddMessageRequest) -> dict:
 
 @app.post("/search/stream")
 async def search_stream(request: SearchRequest):
+    request_t0 = time.perf_counter()
     query = request.query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="Query is required")
 
+    stage_t0 = time.perf_counter()
     await ensure_initialized()
+    logger.info("----logger   [timing.search_stream] ensure_initialized_ms=%.1f", (time.perf_counter() - stage_t0) * 1000)
+
+    stage_t0 = time.perf_counter()
     configure_llm()
+    logger.info("----logger   [timing.search_stream] configure_llm_ms=%.1f", (time.perf_counter() - stage_t0) * 1000)
+
     chat_id = request.chat_id
     assistant_message_id = str(uuid4())
     if chat_id:
+        stage_t0 = time.perf_counter()
         chat = get_chat(chat_id)
         if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")
@@ -482,12 +491,24 @@ async def search_stream(request: SearchRequest):
             update_chat_title(chat_id, _generate_title(query))
         else:
             touch_chat(chat_id)
+        logger.info("----logger   [timing.search_stream] chat_persist_ms=%.1f", (time.perf_counter() - stage_t0) * 1000)
     # Retrieve relevant chunks first, then stream answer tokens.
+    stage_t0 = time.perf_counter()
     index = get_index()
+    logger.info("----logger   [timing.search_stream] get_index_ms=%.1f", (time.perf_counter() - stage_t0) * 1000)
+
+    stage_t0 = time.perf_counter()
     payload = run_search(index, query, request.top_k)
     results = payload.get("results", [])
+    logger.info(
+        "----logger   [timing.search_stream] run_search_ms=%.1f results=%s pre_stream_total_ms=%.1f",
+        (time.perf_counter() - stage_t0) * 1000,
+        len(results),
+        (time.perf_counter() - request_t0) * 1000,
+    )
 
     async def event_gen():
+        stream_t0 = time.perf_counter()
         yield _sse("results", {"results": results})
         if not results:
             if chat_id:
@@ -502,6 +523,11 @@ async def search_stream(request: SearchRequest):
                 _enforce_chat_limits(chat_id)
                 touch_chat(chat_id)
             yield _sse("done", {"usage": {}})
+            logger.info(
+                "----logger   [timing.search_stream] stream_total_ms=%.1f request_total_ms=%.1f no_results=1",
+                (time.perf_counter() - stream_t0) * 1000,
+                (time.perf_counter() - request_t0) * 1000,
+            )
             return
 
         answer_parts: list[str] = []
@@ -576,6 +602,12 @@ async def search_stream(request: SearchRequest):
         )
 
         yield _sse("done", {})
+        logger.info(
+            "----logger   [timing.search_stream] stream_total_ms=%.1f request_total_ms=%.1f answer_chars=%s",
+            (time.perf_counter() - stream_t0) * 1000,
+            (time.perf_counter() - request_t0) * 1000,
+            len(full_answer),
+        )
 
     return StreamingResponse(
         event_gen(),

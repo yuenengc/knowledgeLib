@@ -44,13 +44,13 @@ CHAT_SUMMARY_WINDOW = int(_env("CHAT_SUMMARY_WINDOW", "10") or 10)
 CHAT_WARN_RATIO = float(_env("CHAT_WARN_RATIO", "0.8") or 0.8)
 CHAT_MAX_SESSIONS = int(_env("CHAT_MAX_SESSIONS", "10") or 10)
 
-SEARCH_BM25_TOP_K = int(_env("SEARCH_BM25_TOP_K", "20") or 20)
-SEARCH_VECTOR_TOP_K = int(_env("SEARCH_VECTOR_TOP_K", "20") or 20)
-SEARCH_RRF_TOP_K = int(_env("SEARCH_RRF_TOP_K", "10") or 10)
-SEARCH_RERANK_TOP_K = int(_env("SEARCH_RERANK_TOP_K", "10") or 10)
-SEARCH_LLM_TOP_K = int(_env("SEARCH_LLM_TOP_K", "5") or 5)
+SEARCH_BM25_TOP_K = int(_env("SEARCH_BM25_TOP_K", "10") or 10)
+SEARCH_VECTOR_TOP_K = int(_env("SEARCH_VECTOR_TOP_K", "10") or 10)
+SEARCH_RRF_TOP_K = int(_env("SEARCH_RRF_TOP_K", "5") or 5)
+SEARCH_RERANK_TOP_K = int(_env("SEARCH_RERANK_TOP_K", "4") or 4)
+SEARCH_LLM_TOP_K = int(_env("SEARCH_LLM_TOP_K", "3") or 3)
 SEARCH_RERANK_THRESHOLD = float(_env("SEARCH_RERANK_THRESHOLD", "0.55") or 0.55)
-SEARCH_RERANK_MODEL = _env("SEARCH_RERANK_MODEL", "BAAI/bge-reranker-base")
+SEARCH_RERANK_MODEL = _env("SEARCH_RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
 
 
 def configure_llm() -> None:
