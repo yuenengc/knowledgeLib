@@ -38,11 +38,11 @@ _LLM_CONFIG: dict[str, str | None] = {"api_base": None, "model": None, "llm_clas
 _EMBED_QUERY_PREFIX: str | None = None
 _EMBED_MODEL_CONFIGURED = False
 _EMBED_MODEL_NAME: str | None = None
-CHAT_MAX_MESSAGES = int(_env("CHAT_MAX_MESSAGES", "20") or 20)
+CHAT_MAX_MESSAGES = int(_env("CHAT_MAX_MESSAGES", "40") or 40)
 CHAT_MAX_TOKENS = int(_env("CHAT_MAX_TOKENS", "4000") or 4000)
 CHAT_SUMMARY_WINDOW = int(_env("CHAT_SUMMARY_WINDOW", "10") or 10)
 CHAT_WARN_RATIO = float(_env("CHAT_WARN_RATIO", "0.8") or 0.8)
-CHAT_MAX_SESSIONS = int(_env("CHAT_MAX_SESSIONS", "5") or 5)
+CHAT_MAX_SESSIONS = int(_env("CHAT_MAX_SESSIONS", "10") or 10)
 
 SEARCH_BM25_TOP_K = int(_env("SEARCH_BM25_TOP_K", "20") or 20)
 SEARCH_VECTOR_TOP_K = int(_env("SEARCH_VECTOR_TOP_K", "20") or 20)

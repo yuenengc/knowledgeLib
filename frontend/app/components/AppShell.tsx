@@ -104,16 +104,16 @@ export default function AppShell({
   }, [menuChatId, menuId]);
 
   return (
-    <main className="min-h-screen">
+    <main className="min-h-screen bg-[var(--surface-page)] text-slate-900">
       <div className="flex min-h-screen">
         <aside
-          className={`flex flex-col border-r border-slate-200/70 bg-[#e9eef6] transition-all duration-300 ${
+          className={`flex flex-col border-r border-slate-200 bg-white transition-all duration-300 ${
             isSidebarOpen ? "w-80" : "w-20"
           }`}
         >
-          <div className="flex items-center justify-between px-4 py-4">
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 h-[56px]">
             <button
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-600 transition hover:bg-white/70 hover:text-slate-900"
+              className="app-icon-button"
               onClick={() => setIsSidebarOpen((prev) => !prev)}
               type="button"
               aria-label={isSidebarOpen ? "收起侧边栏" : "展开侧边栏"}
@@ -121,15 +121,15 @@ export default function AppShell({
               <Menu className="h-5 w-5" />
             </button>
             {isSidebarOpen && (
-              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                 Knowledge Base
               </div>
             )}
           </div>
 
-          <div className="px-4">
+          <div className="px-4 pt-4">
             <button
-              className={`inline-flex h-10 w-full items-center justify-center gap-2 rounded-[24px] bg-slate-900 px-4 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(15,23,42,0.18)] transition hover:bg-slate-800 ${
+              className={`app-primary-button w-full ${
                 isSidebarOpen ? "" : "px-0"
               }`}
               onClick={handleNewChat}
@@ -142,9 +142,9 @@ export default function AppShell({
 
           {isSidebarOpen ? (
             <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-4 pb-6 pt-6">
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <button
-                  className="flex h-10 w-full items-center justify-between rounded-[24px] bg-[#e9eef6] px-3 text-xs font-semibold text-slate-700 transition hover:bg-white/70"
+                  className="flex h-10 w-full items-center justify-between rounded-lg px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
                   type="button"
                   onClick={() => setKbOpen((prev) => !prev)}
                 >
@@ -153,10 +153,10 @@ export default function AppShell({
                 </button>
                 {kbOpen && (
                   <button
-                    className={`flex h-10 w-full items-center justify-between rounded-[24px] px-3 text-xs transition ${
+                    className={`flex h-10 w-full items-center justify-between rounded-lg px-3 text-xs transition ${
                       activeSection === "upload"
-                        ? "bg-[#D3E3FD] font-semibold text-slate-900"
-                        : "bg-[#e9eef6] text-slate-700 hover:bg-white/80"
+                        ? "bg-blue-50 font-semibold text-blue-700 ring-1 ring-blue-100"
+                        : "text-slate-700 hover:bg-slate-50"
                     }`}
                     onClick={handleUploadNav}
                     type="button"
@@ -169,7 +169,7 @@ export default function AppShell({
 
               {chatSessions.length > 0 && (
                 <div className="space-y-3">
-                  <div className="px-3 text-[12px] font-semibold uppercase tracking-wide text-[#334155]">
+                    <div className="px-3 text-[12px] font-semibold uppercase tracking-wide text-slate-500">
                     对话
                   </div>
                   <div className="space-y-2">
@@ -179,10 +179,10 @@ export default function AppShell({
                       return (
                       <div
                         key={session.id}
-                        className={`flex h-10 items-center justify-between rounded-[24px] px-3 text-xs transition ${
+                        className={`flex h-10 items-center justify-between rounded-lg px-3 text-xs transition ${
                           isActive
-                            ? "bg-[#D3E3FD] font-semibold text-slate-900"
-                            : "bg-[#e9eef6] text-slate-700 hover:bg-white/80"
+                            ? "bg-blue-50 font-semibold text-blue-700 ring-1 ring-blue-100"
+                            : "text-slate-700 hover:bg-slate-50"
                         }`}
                       >
                           {isEditing ? (
@@ -211,7 +211,7 @@ export default function AppShell({
                         <div className="relative flex items-center gap-1">
                           {isEditing ? (
                             <button
-                              className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/70 text-slate-700"
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-white text-slate-700 shadow-sm"
                               onClick={() => saveChatTitle(session.id)}
                               type="button"
                               aria-label="保存标题"
@@ -221,7 +221,7 @@ export default function AppShell({
                           ) : (
                             <>
                               <button
-                                className={`inline-flex h-6 w-6 items-center justify-center rounded-full transition ${
+                                className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition ${
                                   isActive ? "text-slate-700" : "text-slate-400 hover:text-slate-700"
                                 }`}
                                 data-chat-menu-trigger="true"
@@ -236,10 +236,10 @@ export default function AppShell({
                               {menuChatId === session.id && (
                                 <div
                                   id={menuId ?? undefined}
-                                  className="absolute right-0 top-7 z-20 w-28 rounded-lg border border-slate-200 bg-white p-1 text-[11px] shadow-lg"
+                                  className="absolute right-0 top-8 z-20 w-28 rounded-lg border border-slate-200 bg-white p-1 text-[11px] shadow-lg"
                                 >
                                   <button
-                                    className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-slate-700 hover:bg-slate-100"
+                                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-slate-700 hover:bg-slate-100"
                                     type="button"
                                     onClick={() => {
                                       setMenuChatId(null);
@@ -250,7 +250,7 @@ export default function AppShell({
                                     重命名
                                   </button>
                                   <button
-                                    className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-red-600 hover:bg-red-50"
+                                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-red-600 hover:bg-red-50"
                                     type="button"
                                     onClick={() => handleDeleteChat(session.id)}
                                   >
@@ -272,10 +272,10 @@ export default function AppShell({
           ) : (
             <div className="flex flex-1 flex-col items-center gap-3 px-2 py-6">
               <button
-                className={`inline-flex h-10 w-10 items-center justify-center rounded-full transition ${
+                className={`inline-flex h-10 w-10 items-center justify-center rounded-lg transition ${
                   activeSection === "upload"
-                    ? "bg-[#D3E3FD] text-slate-900"
-                    : "bg-white text-slate-500 hover:bg-white/80"
+                    ? "bg-blue-50 text-blue-700 ring-1 ring-blue-100"
+                    : "text-slate-500 hover:bg-slate-100"
                 }`}
                 onClick={handleUploadNav}
                 type="button"
@@ -303,27 +303,27 @@ export default function AppShell({
           )}
         </aside>
 
-        <div className="flex min-h-screen flex-1 flex-col bg-white">
-          <header className="flex items-center justify-between px-6 py-4">
+        <div className="flex min-h-screen flex-1 flex-col">
+          {/* <header className="flex items-center justify-between border-b border-slate-200 bg-white/90 px-6 py-4 backdrop-blur">
             <div>
               <div className="text-sm font-semibold text-slate-900">Enterprise Knowledge Base</div>
               <div className="text-xs text-slate-500">语义检索驱动的对话式工作区</div>
             </div>
             <div className="flex items-center gap-3">
-              <span className="inline-flex items-center gap-1 rounded-full border border-slate-200/60 bg-white px-3 py-1 text-xs text-slate-600 shadow-sm">
+              <span className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-600 shadow-sm">
                 v0.1.0
               </span>
-              <button className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200/60 bg-white text-slate-600 shadow-sm">
+              <button className="app-icon-button border-slate-200 bg-white shadow-sm">
                 <Bell className="h-4 w-4" />
               </button>
-              <button className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200/60 bg-white text-slate-600 shadow-sm">
+              <button className="app-icon-button border-slate-200 bg-white shadow-sm">
                 <UserCircle className="h-5 w-5" />
               </button>
             </div>
-          </header>
+          </header> */}
 
-          <div className="flex-1 px-6 pb-8 min-h-0">
-            <div className={`grid gap-6 min-h-0 ${rightPanel ? "xl:grid-cols-[1fr_320px]" : ""}`}>
+          <div className="min-h-0 flex-1">
+            <div className={`grid h-full min-h-0 ${rightPanel ? "xl:grid-cols-[minmax(0,1fr)_464px]" : ""}`}>
               <div className="min-h-0">
                 {children({ activeChatTitle, activeChatId })}
               </div>

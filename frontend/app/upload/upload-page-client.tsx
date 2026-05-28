@@ -335,8 +335,11 @@ export default function UploadPageClient() {
       onDeleteChat={deleteChat}
     >
       {() => (
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
-          <div className="mb-4 text-sm font-semibold text-slate-900">文件上传与历史</div>
+        <div className="app-panel overflow-hidden h-[fill-available]">
+          <div className="app-panel-header h-[56px]">
+            <div className="text-sm font-semibold text-slate-900">文件上传与历史</div>
+          </div>
+          <div className="p-5">
           <UploadTab
             selectedFiles={selectedFiles}
             onFilesChange={setSelectedFiles}
@@ -358,6 +361,7 @@ export default function UploadPageClient() {
             deleteStatus={deleteStatus}
             deleteError={deleteError}
           />
+          </div>
         </div>
       )}
     </AppShell>
