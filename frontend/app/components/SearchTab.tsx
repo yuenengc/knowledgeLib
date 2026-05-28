@@ -1,6 +1,6 @@
 ﻿import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { SendHorizontal, Sparkles } from "lucide-react";
+import { SendHorizontal } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import type { KeyboardEvent } from "react";
 
@@ -47,14 +47,14 @@ export default function SearchTab({
   const hasMessages = messages.length > 0;
   const endRef = useRef<HTMLDivElement | null>(null);
   const suggestions = useMemo(
-    () => ["概览最新上传的文件", "如何将合同文档结构化？", "生成一份季度复盘摘要"],
+    () => ["年休假有多少天", "公司有哪些福利？", "如何申请病假"],
     []
   );
 
   const markdownComponents = useMemo<Components>(
     () => ({
       p: ({ children, ...props }) => (
-        <p className="text-[14px] leading-[22px] text-slate-600" {...props}>
+        <p className="text-[14px] leading-6 text-slate-700" {...props}>
           {children}
         </p>
       ),
@@ -64,7 +64,7 @@ export default function SearchTab({
         </strong>
       ),
       em: ({ children, ...props }) => (
-        <em className="italic text-slate-600" {...props}>
+        <em className="italic text-slate-700" {...props}>
           {children}
         </em>
       ),
@@ -84,19 +84,19 @@ export default function SearchTab({
         </h5>
       ),
       ul: ({ children, ...props }) => (
-        <ul className="list-disc space-y-2 pl-5 text-[14px] leading-[22px] text-slate-600" {...props}>
+        <ul className="list-disc space-y-2 pl-5 text-[14px] leading-6 text-slate-700" {...props}>
           {children}
         </ul>
       ),
       ol: ({ children, ...props }) => (
-        <ol className="list-decimal space-y-2 pl-5 text-[14px] leading-[22px] text-slate-600" {...props}>
+        <ol className="list-decimal space-y-2 pl-5 text-[14px] leading-6 text-slate-700" {...props}>
           {children}
         </ol>
       ),
       li: ({ children, ...props }) => <li {...props}>{children}</li>,
       blockquote: ({ children, ...props }) => (
         <blockquote
-          className="border-l-2 border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-[14px] leading-[22px] text-slate-600"
+          className="rounded-lg border-l-2 border-blue-300 bg-blue-50 px-3 py-2 text-[14px] leading-6 text-slate-700"
           {...props}
         >
           {children}
@@ -105,20 +105,20 @@ export default function SearchTab({
       code: ({ className, children, ...props }) => {
         const isBlock = Boolean(className?.includes("language-"));
         return isBlock ? (
-          <pre className="overflow-x-auto rounded-lg bg-slate-100 p-3 text-[12px] text-slate-600">
+          <pre className="overflow-x-auto rounded-lg bg-slate-100 p-3 text-[12px] text-slate-700">
             <code className={className} {...props}>
               {children}
             </code>
           </pre>
         ) : (
-          <code className="rounded-md bg-slate-100 px-1 py-0.5 text-[12px] text-slate-600" {...props}>
+          <code className="rounded-md bg-slate-100 px-1 py-0.5 text-[12px] text-slate-700" {...props}>
             {children}
           </code>
         );
       },
       a: ({ href, children, ...props }) => (
         <a
-          className="cursor-pointer text-blue-700 underline underline-offset-2"
+          className="cursor-pointer font-medium text-blue-700 underline underline-offset-2"
           data-href={href}
           href={href || "#"}
           onClick={(event) => {
@@ -163,30 +163,27 @@ export default function SearchTab({
 
 
   return (
-    <div className="flex h-full flex-col rounded-3xl border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
-      <div className="flex items-center justify-between border-b border-white/60 px-6 py-4">
-        <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-xs text-white">
-            <Sparkles className="h-4 w-4" />
-          </span>
-          {title}
+    <div className="flex h-full flex-col bg-white">
+      {/* <div className="flex h-[56px] shrink-0 items-center justify-between border-b border-slate-200 px-8">
+        <div className="flex items-center gap-3 text-sm font-bold text-slate-900">
+          <span>当前对话：{title}</span>
         </div>
-        {usageText && <div className="text-[12px] text-slate-500">{usageText}</div>}
-      </div>
+        {usageText && <div className="text-[12px] text-slate-400">{usageText}</div>}
+      </div> */}
 
-      <div className="flex-1 overflow-y-auto px-6 py-8">
+      <div className="flex-1 overflow-y-auto px-8 pb-20 pt-10">
         {!hasMessages ? (
-          <div className="mx-auto flex max-w-2xl flex-col items-center gap-6 text-center">
-            <div className="rounded-3xl border border-slate-200/70 bg-white px-8 py-6 shadow-sm">
-              <div className="text-2xl font-semibold text-slate-900">今天想从哪里开始？</div>
+          <div className="mx-auto flex max-w-3xl flex-col items-start gap-5">
+            <div>
+              <div className="text-xl font-semibold text-slate-900">今天想从哪里开始？</div>
               <div className="mt-2 text-sm text-slate-500">输入问题，或选择一个提示快速生成。</div>
             </div>
-            <div className="flex flex-wrap justify-center gap-3">
+            <div className="flex flex-wrap gap-3">
               {suggestions.map((item) => (
                 <button
                   key={item}
                   type="button"
-                  className="rounded-full border border-slate-200/70 bg-white px-4 py-2 text-xs text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+                  className="app-chip"
                   onClick={() => onQueryChange(item)}
                 >
                   {item}
@@ -195,17 +192,22 @@ export default function SearchTab({
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="mx-auto max-w-[840px] space-y-8">
             {messages.map((message) => (
               <div
                 key={message.id}
-                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                className={`last:pb-0 ${
+                  message.role === "user"
+                    ? "flex justify-end"
+                    : "pb-8 border-b border-slate-100 last:border-b-0"
+                }`}
               >
                 <div
-                  className={`max-w-[85%] rounded-2xl px-4 py-3 text-[14px] leading-[22px] shadow-sm ${message.role === "user"
-                    ? "bg-slate-900 text-white"
-                    : "border border-slate-200/80 bg-white text-slate-900"
-                    }`}
+                  className={
+                    message.role === "user"
+                      ? "max-w-[68%] rounded-[1.5rem] bg-slate-100 px-5 py-3 text-[16px] leading-7 text-black"
+                      : "text-[18px] leading-8 text-slate-900"
+                  }
                 >
                   {message.role === "assistant" ? (
                     message.content ? (
@@ -214,7 +216,7 @@ export default function SearchTab({
                         onClick={(event) => {
                           const target = event.target as HTMLElement | null;
                           if (!target) return;
-                          const link = target.closest("button[data-href]");
+                          const link = target.closest("[data-href]");
                           const href = link?.getAttribute("data-href") || "";
                           if (!href.startsWith("source:")) return;
                           event.preventDefault();
@@ -235,13 +237,13 @@ export default function SearchTab({
                           {linkifyCitations(stripCitationSection(message.content), message.id)}
                         </ReactMarkdown>
                         {citationsByMessageId?.[message.id]?.length ? (
-                          <div className="mt-3 space-y-2 text-[12px] text-slate-600">
+                          <div className="mt-4 space-y-2 text-[12px] text-slate-600">
                             <div className="font-semibold text-slate-500">引用</div>
                             <div className="space-y-1">
                               {citationsByMessageId[message.id].map((item) => (
                                 <button
                                   key={`${message.id}-${item.rank}`}
-                                  className="w-full rounded-lg bg-slate-50 px-2 py-1 text-left text-blue-700 hover:bg-slate-100"
+                                  className="w-full rounded-lg bg-slate-50 px-2 py-1.5 text-left text-blue-700 transition hover:bg-blue-50"
                                   type="button"
                                   onClick={() => {
                                     const ref = item.chunk_id || String(item.rank);
@@ -266,8 +268,8 @@ export default function SearchTab({
                         ) : null}
                       </div>
                     ) : searching ? (
-                      <div className="flex items-center gap-2 text-slate-500">
-                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
+                      <div className="flex items-center gap-2 text-sm text-slate-500">
+                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600" />
                         生成中...
                       </div>
                     ) : searchDone ? (
@@ -286,28 +288,29 @@ export default function SearchTab({
         )}
       </div>
 
-      <div className="border-t border-white/60 bg-white/90 px-6 py-4">
+      <div className="shrink-0 bg-white px-8 pb-7">
+        <div className="mx-auto max-w-[900px]">
         {warning && (
-          <div className="mb-3 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-700">
+          <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-700">
             {warning}
           </div>
         )}
         {searchError && (
-          <div className="mb-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-600">
+          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-600">
             {searchError}
           </div>
         )}
-        <div className="relative flex min-h-[56px] items-center rounded-2xl border border-slate-200/70 bg-white px-4 py-3 shadow-sm transition focus-within:border-slate-900 focus-within:shadow-[0_10px_30px_rgba(15,23,42,0.12)]">
+        <div className="flex items-center gap-8 relative border border-slate-200 bg-white p-3 pl-6 rounded-[32px] transition focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-50">
           <textarea
-            className="w-full resize-none pr-12 text-[14px] leading-[22px] text-slate-900 outline-none placeholder:text-slate-400"
-            placeholder="输入问题或 @ 引用文件..."
+            className="grow resize-none bg-transparent text-[16px] leading-7 text-slate-900 outline-none placeholder:text-slate-400"
+            placeholder="向知识库提问... (Shift + Enter 换行)"
             value={query}
             rows={1}
             onChange={(event) => onQueryChange(event.target.value)}
             onKeyDown={onSearchKeyDown}
           />
           <button
-            className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-slate-900 text-white shadow-sm transition hover:bg-slate-800 active:translate-y-[1px] active:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            className="bottom-4 right-4 flex h-[32px] w-[32px] items-center justify-center rounded-full bg-slate-950 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
             onClick={onSearch}
             disabled={searching}
             aria-label="发送"
@@ -315,6 +318,7 @@ export default function SearchTab({
           >
             <SendHorizontal className="h-4 w-4" />
           </button>
+        </div>
         </div>
       </div>
     </div>

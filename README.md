@@ -111,6 +111,7 @@ Environment variables used by the backend:
 - `EMBED_QUERY_PREFIX` (optional, adds a prefix to queries for vector search, e.g. `为这个句子生成表示以用于检索相关文章：`)
 - `DATA_DIR` (default `backend/data`), `UPLOAD_DIR`, `CHROMA_DIR`
 - `CORS_ORIGINS` (comma-separated, e.g. `http://localhost:3000,https://your-vercel-domain.vercel.app`)
+- `CORS_ORIGIN_REGEX` (optional, e.g. `^https://.*\.vercel\.app$` for Vercel preview domains)
 
 ### Vercel (Frontend)
 

@@ -29,7 +29,8 @@ def init_db() -> None:
                     id TEXT PRIMARY KEY,
                     filename TEXT NOT NULL,
                     stored_path TEXT NOT NULL,
-                    uploaded_at TEXT NOT NULL
+                    uploaded_at TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'ready'
                 )
                 """
             )
@@ -60,6 +61,9 @@ def init_db() -> None:
             cols = {row[1] for row in conn.execute("PRAGMA table_info(chunks)").fetchall()}
             if cols and "parent_id" not in cols:
                 conn.execute("ALTER TABLE chunks ADD COLUMN parent_id TEXT")
+            file_cols = {row[1] for row in conn.execute("PRAGMA table_info(files)").fetchall()}
+            if file_cols and "status" not in file_cols:
+                conn.execute("ALTER TABLE files ADD COLUMN status TEXT NOT NULL DEFAULT 'ready'")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS messages (
@@ -110,21 +114,28 @@ def init_db() -> None:
             conn.commit()
 
 
-def add_file(file_id: str, filename: str, stored_path: Path) -> None:
+def add_file(file_id: str, filename: str, stored_path: Path, status: str = "ready") -> None:
     uploaded_at = datetime.now(timezone.utc).isoformat()
     with _WRITE_LOCK:
         with _connect() as conn:
             conn.execute(
-                "INSERT INTO files (id, filename, stored_path, uploaded_at) VALUES (?, ?, ?, ?)",
-                (file_id, filename, str(stored_path), uploaded_at),
+                "INSERT INTO files (id, filename, stored_path, uploaded_at, status) VALUES (?, ?, ?, ?, ?)",
+                (file_id, filename, str(stored_path), uploaded_at, status),
             )
+            conn.commit()
+
+
+def update_file_status(file_id: str, status: str) -> None:
+    with _WRITE_LOCK:
+        with _connect() as conn:
+            conn.execute("UPDATE files SET status = ? WHERE id = ?", (status, file_id))
             conn.commit()
 
 
 def get_files_by_name(filename: str) -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT id, filename, stored_path, uploaded_at FROM files WHERE filename = ?",
+            "SELECT id, filename, stored_path, uploaded_at, status FROM files WHERE filename = ?",
             (filename,),
         ).fetchall()
     return [
@@ -133,6 +144,7 @@ def get_files_by_name(filename: str) -> list[dict]:
             "filename": row[1],
             "stored_path": row[2],
             "uploaded_at": row[3],
+            "status": row[4] if len(row) > 4 else "ready",
         }
         for row in rows
     ]
@@ -141,7 +153,7 @@ def get_files_by_name(filename: str) -> list[dict]:
 def list_files() -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT id, filename, stored_path, uploaded_at FROM files ORDER BY uploaded_at DESC"
+            "SELECT id, filename, stored_path, uploaded_at, status FROM files ORDER BY uploaded_at DESC"
         ).fetchall()
     return [
         {
@@ -149,6 +161,7 @@ def list_files() -> list[dict]:
             "filename": row[1],
             "stored_path": row[2],
             "uploaded_at": row[3],
+            "status": row[4] if len(row) > 4 else "ready",
         }
         for row in rows
     ]

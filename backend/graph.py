@@ -6,6 +6,8 @@ import os
 import json
 import ast
 import math
+import time
+import threading
 
 from langgraph.graph import StateGraph, END
 from llama_index.core import VectorStoreIndex
@@ -37,6 +39,13 @@ except Exception:  # pragma: no cover - optional dependency fallback
 logger = logging.getLogger("knowledge-lib.search")
 LOG_PREFIX = "----logger   "
 _RERANKER = None
+_BM25_LOCK = threading.Lock()
+_BM25_CACHE: dict[str, object] = {
+    "signature": None,
+    "bm25": None,
+    "chunks": [],
+    "tokenized": [],
+}
 
 
 class SearchState(TypedDict):
@@ -93,13 +102,6 @@ def _build_prompt(query: str, results: List[dict]) -> Tuple[str, str]:
 
 
 def build_search_graph(index: VectorStoreIndex):
-    bm25_cache = {
-        "count": 0,
-        "bm25": None,
-        "chunks": [],
-        "tokenized": [],
-    }
-
     def _snip(text: str, max_len: int = 200) -> str:
         value = (text or "").strip().replace("\n", " ")
         if len(value) > max_len:
@@ -127,21 +129,47 @@ def build_search_graph(index: VectorStoreIndex):
         return tokens or text.split()
 
     def _get_bm25() -> Tuple[BM25Okapi | None, List[dict], List[List[str]]]:
+        t0 = time.perf_counter()
         chunks = list_chunks()
+        list_ms = (time.perf_counter() - t0) * 1000
+        signature = tuple(
+            (chunk.get("id"), chunk.get("parent_id"), len(chunk.get("text") or ""))
+            for chunk in chunks
+        )
         if not chunks:
+            logger.info(LOG_PREFIX + "[timing.bm25] list_chunks_ms=%.1f chunks=0 cache_rebuilt=0 total_ms=%.1f", list_ms, (time.perf_counter() - t0) * 1000)
             return None, [], []
-        if bm25_cache["count"] != len(chunks):
-            tokenized = [_tokenize(chunk["text"]) for chunk in chunks]
-            bm25_cache["bm25"] = BM25Okapi(tokenized)
-            bm25_cache["chunks"] = chunks
-            bm25_cache["tokenized"] = tokenized
-            bm25_cache["count"] = len(chunks)
-        return bm25_cache["bm25"], bm25_cache["chunks"], bm25_cache["tokenized"]
+
+        with _BM25_LOCK:
+            rebuilt = False
+            if _BM25_CACHE.get("signature") != signature:
+                build_t0 = time.perf_counter()
+                tokenized = [_tokenize(chunk["text"]) for chunk in chunks]
+                _BM25_CACHE["bm25"] = BM25Okapi(tokenized)
+                _BM25_CACHE["chunks"] = chunks
+                _BM25_CACHE["tokenized"] = tokenized
+                _BM25_CACHE["signature"] = signature
+                rebuilt = True
+                logger.info(LOG_PREFIX + "[timing.bm25] tokenize_build_ms=%.1f chunks=%s", (time.perf_counter() - build_t0) * 1000, len(chunks))
+            logger.info(
+                LOG_PREFIX + "[timing.bm25] list_chunks_ms=%.1f chunks=%s cache_rebuilt=%s total_ms=%.1f",
+                list_ms,
+                len(chunks),
+                int(rebuilt),
+                (time.perf_counter() - t0) * 1000,
+            )
+            return (
+                _BM25_CACHE["bm25"],  # type: ignore[return-value]
+                _BM25_CACHE["chunks"],  # type: ignore[return-value]
+                _BM25_CACHE["tokenized"],  # type: ignore[return-value]
+            )
 
     def _get_reranker():
         global _RERANKER
         if _RERANKER is None and CrossEncoder is not None:
+            t0 = time.perf_counter()
             _RERANKER = CrossEncoder(SEARCH_RERANK_MODEL)
+            logger.info(LOG_PREFIX + "[timing.reranker] load_ms=%.1f model=%s", (time.perf_counter() - t0) * 1000, SEARCH_RERANK_MODEL)
         return _RERANKER
 
     def _merge_results(
@@ -218,6 +246,7 @@ def build_search_graph(index: VectorStoreIndex):
         return str(value)
 
     def retrieve(state: SearchState) -> dict:
+        retrieve_t0 = time.perf_counter()
         top_k = state["top_k"]
         query = state["query"]
         prefix = get_embed_query_prefix()
@@ -281,8 +310,10 @@ def build_search_graph(index: VectorStoreIndex):
             SEARCH_LLM_TOP_K,
         )
 
+        stage_t0 = time.perf_counter()
         retriever = index.as_retriever(similarity_top_k=max(SEARCH_VECTOR_TOP_K, 5))
         vector_nodes_raw = retriever.retrieve(vector_query)
+        logger.info(LOG_PREFIX + "[timing.retrieve] vector_retrieve_ms=%.1f raw_count=%s", (time.perf_counter() - stage_t0) * 1000, len(vector_nodes_raw))
 
         # Expand IndexNode -> parent section TextNode (full section text) via RecursiveRetriever.
         # IndexNodes produced by the indexer embed the parent node in `obj` (serialized in the
@@ -294,6 +325,7 @@ def build_search_graph(index: VectorStoreIndex):
                 node_dict[node.index_id] = node.obj
 
         if node_dict:
+            stage_t0 = time.perf_counter()
             # Ensure every IndexNode has a resolvable target to avoid RecursiveRetriever errors.
             for nws in vector_nodes_raw:
                 node = getattr(nws, "node", None) or nws
@@ -308,14 +340,19 @@ def build_search_graph(index: VectorStoreIndex):
                 retriever_dict={"root": _FixedRetriever(vector_nodes_raw)},
                 node_dict=node_dict,
             ).retrieve(vector_query)
+            logger.info(LOG_PREFIX + "[timing.retrieve] recursive_expand_ms=%.1f expanded_count=%s", (time.perf_counter() - stage_t0) * 1000, len(vector_nodes))
         else:
             vector_nodes = vector_nodes_raw
 
+        stage_t0 = time.perf_counter()
         bm25, bm25_nodes, _ = _get_bm25()
+        logger.info(LOG_PREFIX + "[timing.retrieve] bm25_get_ms=%.1f nodes=%s", (time.perf_counter() - stage_t0) * 1000, len(bm25_nodes))
         bm25_ranked = []
         if bm25 is not None:
+            stage_t0 = time.perf_counter()
             scores = bm25.get_scores(_tokenize(query))
             bm25_ranked = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)[:SEARCH_BM25_TOP_K]
+            logger.info(LOG_PREFIX + "[timing.retrieve] bm25_score_sort_ms=%.1f ranked=%s", (time.perf_counter() - stage_t0) * 1000, len(bm25_ranked))
 
         # Log raw hits: vector vs keyword (BM25)
         logger.info(LOG_PREFIX + "[hits.vector] count=%s", len(vector_nodes))
@@ -353,6 +390,7 @@ def build_search_graph(index: VectorStoreIndex):
         fused: Dict[str, dict] = {}
         rrf_k = 60.0
 
+        stage_t0 = time.perf_counter()
         for rank, obj in enumerate(vector_nodes, start=1):
             base, _score = _unwrap_vector_node(obj)
             metadata = _metadata(base)
@@ -390,16 +428,21 @@ def build_search_graph(index: VectorStoreIndex):
             item["score"] += 1.0 / (rrf_k + rank)
 
         rrf_candidates = sorted(fused.values(), key=lambda x: x["score"], reverse=True)[:SEARCH_RRF_TOP_K]
+        logger.info(LOG_PREFIX + "[timing.retrieve] rrf_fusion_ms=%.1f candidates=%s", (time.perf_counter() - stage_t0) * 1000, len(rrf_candidates))
 
         logger.info(LOG_PREFIX + "[hits.rrf] count=%s", len(rrf_candidates))
         for i, item in enumerate(rrf_candidates, start=1):
             _log_hit("rrf", i, item)
 
+        stage_t0 = time.perf_counter()
         reranker = _get_reranker()
+        logger.info(LOG_PREFIX + "[timing.retrieve] reranker_get_ms=%.1f enabled=%s", (time.perf_counter() - stage_t0) * 1000, int(reranker is not None))
         reranked = rrf_candidates
         if reranker is not None and rrf_candidates:
             pairs = [(query, item.get("text") or "") for item in rrf_candidates]
-            scores = reranker.predict(pairs, convert_to_numpy=False)
+            stage_t0 = time.perf_counter()
+            scores = reranker.predict(pairs, batch_size=8, convert_to_numpy=False)
+            logger.info(LOG_PREFIX + "[timing.retrieve] reranker_predict_ms=%.1f pairs=%s", (time.perf_counter() - stage_t0) * 1000, len(pairs))
             scored = []
             for item, score in zip(rrf_candidates, scores):
                 scored_item = dict(item)
@@ -414,7 +457,9 @@ def build_search_graph(index: VectorStoreIndex):
         for i, item in enumerate(reranked, start=1):
             _log_hit("rerank", i, item)
 
+        stage_t0 = time.perf_counter()
         merged = _merge_results(reranked[:SEARCH_RERANK_TOP_K])
+        logger.info(LOG_PREFIX + "[timing.retrieve] merge_ms=%.1f merged=%s", (time.perf_counter() - stage_t0) * 1000, len(merged))
 
         try:
             llm_results = merged[:SEARCH_LLM_TOP_K]
@@ -424,7 +469,9 @@ def build_search_graph(index: VectorStoreIndex):
         except Exception:
             pass
 
-        return {"results": merged[:SEARCH_LLM_TOP_K]}
+        results = merged[:SEARCH_LLM_TOP_K]
+        logger.info(LOG_PREFIX + "[timing.retrieve] total_ms=%.1f results=%s", (time.perf_counter() - retrieve_t0) * 1000, len(results))
+        return {"results": results}
 
     graph = StateGraph(SearchState)
     graph.add_node("retrieve", retrieve)
@@ -434,15 +481,24 @@ def build_search_graph(index: VectorStoreIndex):
 
 
 def run_search(index: VectorStoreIndex, query: str, top_k: int) -> dict:
+    t0 = time.perf_counter()
     graph = build_search_graph(index)
+    logger.info(LOG_PREFIX + "[timing.run_search] build_graph_ms=%.1f", (time.perf_counter() - t0) * 1000)
     state = {"query": query, "top_k": top_k}
+    invoke_t0 = time.perf_counter()
     result = graph.invoke(state)
+    logger.info(
+        LOG_PREFIX + "[timing.run_search] invoke_ms=%.1f total_ms=%.1f",
+        (time.perf_counter() - invoke_t0) * 1000,
+        (time.perf_counter() - t0) * 1000,
+    )
     return {
         "results": result.get("results", []),
     }
 
 
 async def stream_answer(query: str, results: List[dict]) -> AsyncGenerator[dict, None]:
+    stream_t0 = time.perf_counter()
     if not results:
         return
     if not is_llm_enabled():
@@ -453,7 +509,9 @@ async def stream_answer(query: str, results: List[dict]) -> AsyncGenerator[dict,
         yield {"type": "usage", "usage": {}}
         return
 
+    prompt_t0 = time.perf_counter()
     system, user = _build_prompt(query, results)
+    logger.info(LOG_PREFIX + "[timing.llm] build_prompt_ms=%.1f results=%s prompt_chars=%s", (time.perf_counter() - prompt_t0) * 1000, len(results), len(system) + len(user))
     api_key = os.getenv("DEEPSEEK_API_KEY") or ""
     api_base = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com/v1")
     model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
@@ -470,9 +528,12 @@ async def stream_answer(query: str, results: List[dict]) -> AsyncGenerator[dict,
     }
 
     usage: dict = {}
+    first_delta_logged = False
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
+            request_t0 = time.perf_counter()
             async with client.stream("POST", url, headers=headers, json=payload) as resp:
+                logger.info(LOG_PREFIX + "[timing.llm] response_headers_ms=%.1f status=%s", (time.perf_counter() - request_t0) * 1000, resp.status_code)
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if not line:
@@ -494,6 +555,9 @@ async def stream_answer(query: str, results: List[dict]) -> AsyncGenerator[dict,
                     delta = choices[0].get("delta") or {}
                     content = delta.get("content")
                     if content:
+                        if not first_delta_logged:
+                            first_delta_logged = True
+                            logger.info(LOG_PREFIX + "[timing.llm] first_delta_ms=%.1f", (time.perf_counter() - request_t0) * 1000)
                         yield {"type": "delta", "content": content}
     except Exception as exc:
         yield {"type": "delta", "content": f"### 答案\nLLM 调用失败：{exc}"}
@@ -502,3 +566,4 @@ async def stream_answer(query: str, results: List[dict]) -> AsyncGenerator[dict,
 
     if usage:
         yield {"type": "usage", "usage": usage}
+    logger.info(LOG_PREFIX + "[timing.llm] stream_total_ms=%.1f first_delta_seen=%s", (time.perf_counter() - stream_t0) * 1000, int(first_delta_logged))

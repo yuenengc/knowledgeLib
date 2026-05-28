@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { BookOpen } from "lucide-react";
 import type { SearchResult, UsageInfo } from "./types";
 import AppShell from "./components/AppShell";
 import SearchTab from "./components/SearchTab";
@@ -383,91 +384,97 @@ export default function HomePageClient() {
   };
 
   const rightPanel = (
-    <aside className="order-last rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_20px_50px_rgba(15,23,42,0.08)] xl:order-none">
-      <div className="flex items-center justify-between">
-        <div className="text-xs font-semibold text-slate-700">Source Details</div>
-        <div className="text-[11px] text-slate-400">{filteredResults.length} items</div>
+    <aside className="order-last flex h-[100vh] flex-col border-l border-slate-200 bg-slate-50 xl:order-none">
+      <div className="flex h-[56px] shrink-0 items-center gap-2 border-b border-slate-200 bg-slate-50 px-5">
+        <BookOpen className="h-4 w-4 text-slate-600" />
+        <div className="text-base font-bold text-slate-900">引用的原文上下文 ({filteredResults.length})</div>
       </div>
 
-      {!shouldShowSourcePanel && (
-        <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-white p-4 text-xs text-slate-500">
-          Click a citation to preview the original source.
-        </div>
-      )}
-
-      {shouldShowSourcePanel && (
-        <div className="mt-4 space-y-4">
-          {filteredResults.length > 0 && (
-            <div>
-              <div className="text-xs font-semibold text-slate-700">Cited Sources</div>
-              <div className="mt-2 space-y-2 text-xs">
-                {filteredResults.map((item, index) => (
-                  <button
-                    key={`${item.file_id ?? "unknown"}-${index}`}
-                    className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left transition ${
-                      selectedSourceId === item.file_id
-                        ? "border-slate-300 bg-slate-100 text-slate-900"
-                        : "border-slate-200/70 bg-white text-slate-700 hover:border-slate-300"
-                    }`}
-                    type="button"
-                    onClick={() => loadSourceByFileId(item.file_id ?? null)}
-                  >
-                    <div className="truncate font-medium text-slate-900">{item.file_name || "Unknown source"}</div>
-                    <div className="text-[11px] text-slate-400">Source {index + 1}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div>
-            <div className="text-xs font-semibold text-slate-700">Source Preview</div>
-            <div className="mt-2 max-h-72 space-y-3 overflow-y-auto rounded-2xl bg-slate-50 p-3 text-xs text-slate-600">
-              {sourceLoading && (
-                <div className="rounded-xl border border-dashed border-slate-200 bg-white p-3 text-xs text-slate-500">
-                  Loading...
-                </div>
-              )}
-              {!sourceLoading && selectedSourceId === null && (
-                <div className="rounded-xl border border-dashed border-slate-200 bg-white p-3 text-xs text-slate-500">
-                  Click a source above to preview the original text.
-                </div>
-              )}
-              {!sourceLoading && selectedSourceId !== null && sourceItems.length === 0 && (
-                <div className="rounded-xl border border-dashed border-slate-200 bg-white p-3 text-xs text-slate-500">
-                  No source text loaded.
-                </div>
-              )}
-              {!sourceLoading &&
-                sourceItems.map((item, index) => (
-                  <div
-                    key={`${item.id ?? "source"}-${index}`}
-                    className="space-y-2 rounded-2xl border border-slate-200/60 bg-white p-3"
-                  >
-                    <div className="text-xs font-semibold text-slate-900">
-                      {item.file_name || "Unknown source"}
-                    </div>
-                    {isTableText(item.text) ? (
-                      <pre className="whitespace-pre-wrap font-mono">{item.text}</pre>
-                    ) : (
-                      <div className="whitespace-pre-wrap">
-                        {(() => {
-                          const { title, body } = formatResultText(item.text || "");
-                          return (
-                            <>
-                              {title && <div className="font-medium text-slate-900">{title}</div>}
-                              {body ? `\n\n${body}` : ""}
-                            </>
-                          );
-                        })()}
-                      </div>
-                    )}
-                  </div>
-                ))}
-            </div>
+      <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
+        {filteredResults.length === 0 && (
+          <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
+            点击回答中的引用编号，右侧会展示对应的原文片段。
           </div>
-        </div>
-      )}
+        )}
+
+        {filteredResults.map((item, index) => {
+          const score = typeof item.score === "number" ? `${Math.round(item.score * 100)}%` : "参考";
+          const isActive = selectedSourceId === item.file_id || selectedSourceId === item.chunk_id;
+          return (
+            <button
+              key={`${item.chunk_id ?? item.file_id ?? "unknown"}-${index}`}
+              className={`w-full rounded-lg border bg-white p-4 text-left transition ${
+                isActive
+                  ? "border-indigo-200 ring-1 ring-indigo-200"
+                  : "border-slate-200 hover:border-indigo-200"
+              }`}
+              type="button"
+              onClick={() => {
+                if (item.chunk_id) {
+                  loadSourceByChunkId(item.chunk_id);
+                } else {
+                  loadSourceByFileId(item.file_id ?? null);
+                }
+              }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-md bg-indigo-600 px-1.5 text-xs font-bold text-white">
+                    {index + 1}
+                  </span>
+                  <span className="truncate text-sm font-medium text-slate-700">
+                    {item.file_name || "Unknown source"}
+                  </span>
+                </div>
+                <span className="shrink-0 rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
+                  置信度 {score}
+                </span>
+              </div>
+              <div className="mt-3 rounded-lg bg-slate-50 px-3 py-3 text-sm leading-6 text-slate-700">
+                “{((item as any).quote_text || item.text || "暂无原文摘要").slice(0, 140)}...”
+              </div>
+              <div className="mt-3 text-right text-xs text-slate-400">
+                来源：{item.file_name || "知识库文档"}
+              </div>
+            </button>
+          );
+        })}
+
+        {sourceLoading && (
+          <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
+            正在加载原文...
+          </div>
+        )}
+
+        {!sourceLoading && sourceItems.length > 0 && (
+          <div className="space-y-3 pt-2">
+            <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Source Preview</div>
+            {sourceItems.map((item, index) => (
+              <div
+                key={`${item.id ?? "source"}-${index}`}
+                className="rounded-lg border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-700"
+              >
+                <div className="mb-2 font-semibold text-slate-900">{item.file_name || "Unknown source"}</div>
+                {isTableText(item.text) ? (
+                  <pre className="whitespace-pre-wrap font-mono text-xs">{item.text}</pre>
+                ) : (
+                  <div className="whitespace-pre-wrap">
+                    {(() => {
+                      const { title, body } = formatResultText(item.text || "");
+                      return (
+                        <>
+                          {title && <div className="font-medium text-slate-900">{title}</div>}
+                          {body ? `\n\n${body}` : ""}
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </aside>
   );
 
@@ -488,7 +495,7 @@ export default function HomePageClient() {
       onDeleteChat={deleteChat}
     >
       {({ activeChatTitle }) => (
-        <div className="h-[calc(100vh-160px)] min-h-0">
+        <div className="h-screen min-h-0">
           <SearchTab
             title={activeChatTitle}
             query={query}
