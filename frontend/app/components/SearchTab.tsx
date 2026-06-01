@@ -1,7 +1,7 @@
 ﻿import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { SendHorizontal } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { Copy, SendHorizontal, ThumbsDown, ThumbsUp } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
 type ChatMessage = {
@@ -53,6 +53,8 @@ export default function SearchTab({
 }: SearchTabProps) {
   const hasMessages = messages.length > 0;
   const endRef = useRef<HTMLDivElement | null>(null);
+  const [feedbackByMessageId, setFeedbackByMessageId] = useState<Record<string, "up" | "down" | null>>({});
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const suggestions = useMemo(
     () => ["年休假有多少天", "公司有哪些福利？", "如何申请病假"],
     []
@@ -185,6 +187,18 @@ export default function SearchTab({
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, searching, hasMessages]);
 
+  const handleCopyMessage = async (messageId: string, content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedMessageId(messageId);
+      window.setTimeout(() => {
+        setCopiedMessageId((current) => (current === messageId ? null : current));
+      }, 1500);
+    } catch {
+      // ignore
+    }
+  };
+
 
 
   return (
@@ -221,11 +235,10 @@ export default function SearchTab({
             {messages.map((message) => (
               <div
                 key={message.id}
-                className={`last:pb-0 ${
-                  message.role === "user"
-                    ? "flex justify-end"
-                    : "pb-8 border-b border-slate-100 last:border-b-0"
-                }`}
+                className={`last:pb-0 ${message.role === "user"
+                  ? "flex justify-end"
+                  : "pb-8 border-b border-slate-100 last:border-b-0"
+                  }`}
               >
                 <div
                   className={
@@ -291,6 +304,52 @@ export default function SearchTab({
                             </div>
                           </div>
                         ) : null}
+
+                        <div className="mt-4 flex items-center gap-4 text-slate-500">
+                          <button
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border-slate-200 bg-white text-[13px] font-medium transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+                            type="button"
+                            onClick={() => handleCopyMessage(message.id, stripCitationSection(message.content))}
+                            aria-label="复制回答"
+                            title="复制"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            className={`inline-flex h-8 items-center gap-1.5 rounded-lg text-[13px] font-medium transition ${feedbackByMessageId[message.id] === "up"
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+                              }`}
+                            type="button"
+                            onClick={() =>
+                              setFeedbackByMessageId((prev) => ({
+                                ...prev,
+                                [message.id]: prev[message.id] === "up" ? null : "up",
+                              }))
+                            }
+                            aria-label="喜欢"
+                            title="喜欢"
+                          >
+                            <ThumbsUp className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            className={`inline-flex h-8 items-center gap-1.5 rounded-lg text-[13px] font-medium transition ${feedbackByMessageId[message.id] === "down"
+                              ? "border-red-200 bg-red-50 text-red-700"
+                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+                              }`}
+                            type="button"
+                            onClick={() =>
+                              setFeedbackByMessageId((prev) => ({
+                                ...prev,
+                                [message.id]: prev[message.id] === "down" ? null : "down",
+                              }))
+                            }
+                            aria-label="不喜欢"
+                            title="不喜欢"
+                          >
+                            <ThumbsDown className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ) : searching ? (
                       <div className="flex items-center gap-2 text-sm text-slate-500">
@@ -315,35 +374,35 @@ export default function SearchTab({
 
       <div className="shrink-0 bg-white px-8 pb-7">
         <div className="mx-auto max-w-[900px]">
-        {warning && (
-          <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-700">
-            {warning}
+          {warning && (
+            <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-700">
+              {warning}
+            </div>
+          )}
+          {searchError && (
+            <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-600">
+              {searchError}
+            </div>
+          )}
+          <div className="flex items-center gap-8 relative border border-slate-200 bg-white p-3 pl-6 rounded-[32px] transition focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-50">
+            <textarea
+              className="grow resize-none bg-transparent text-[16px] leading-7 text-slate-900 outline-none placeholder:text-slate-400"
+              placeholder="向知识库提问... (Shift + Enter 换行)"
+              value={query}
+              rows={1}
+              onChange={(event) => onQueryChange(event.target.value)}
+              onKeyDown={onSearchKeyDown}
+            />
+            <button
+              className="bottom-4 right-4 flex h-[32px] w-[32px] items-center justify-center rounded-full bg-slate-950 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+              onClick={onSearch}
+              disabled={searching}
+              aria-label="发送"
+              type="button"
+            >
+              <SendHorizontal className="h-4 w-4" />
+            </button>
           </div>
-        )}
-        {searchError && (
-          <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-600">
-            {searchError}
-          </div>
-        )}
-        <div className="flex items-center gap-8 relative border border-slate-200 bg-white p-3 pl-6 rounded-[32px] transition focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-50">
-          <textarea
-            className="grow resize-none bg-transparent text-[16px] leading-7 text-slate-900 outline-none placeholder:text-slate-400"
-            placeholder="向知识库提问... (Shift + Enter 换行)"
-            value={query}
-            rows={1}
-            onChange={(event) => onQueryChange(event.target.value)}
-            onKeyDown={onSearchKeyDown}
-          />
-          <button
-            className="bottom-4 right-4 flex h-[32px] w-[32px] items-center justify-center rounded-full bg-slate-950 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-            onClick={onSearch}
-            disabled={searching}
-            aria-label="发送"
-            type="button"
-          >
-            <SendHorizontal className="h-4 w-4" />
-          </button>
-        </div>
         </div>
       </div>
     </div>

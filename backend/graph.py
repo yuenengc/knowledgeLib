@@ -70,9 +70,6 @@ def _build_prompt(query: str, results: List[dict]) -> Tuple[str, str]:
     user = (
         "任务：回答用户问题，仅依据资料。\n"
         "输出格式（必须遵守）：\n"
-        "### 答案\n"
-        "- **要点1**：... [1]\n"
-        "- **要点2**：... [2]\n\n"
         "### 引用\n"
         "- [1] 出处+简述（不超过30字）\n"
         "- [2] 出处+简述（不超过30字）\n\n"
@@ -83,7 +80,7 @@ def _build_prompt(query: str, results: List[dict]) -> Tuple[str, str]:
         "4) 若资料不足，请只输出：\n"
         "### 答案\n"
         "未找到相关信息。\n"
-        "### 引用\n"
+        "### 来源\n"
         "- 无\n\n"
         "问题：\n"
         "<<<{query}>>>\n\n"
