@@ -146,15 +146,44 @@ Design notes:
 - chat/message/citation cleanup relies on foreign-key cascade
 - retrieval uses Chroma for vector search and SQLite `chunks` for BM25 fallback
 
-查看向量数据库:
+## Inspecting the Chroma Vector Database
 
-- 启动 Chroma Server（CLI），在项目根目录运行，保持窗口不关闭：
-  chroma run --path backend/chroma_db --host 0.0.0.0 --port 8001
-- 启动 UI（Docker）
-  docker run -d --rm --name chromadb-admin -p 3001:3001 fengzhichao/chromadb-admin
-- 打开 UI 并配置
-  浏览器打开：http://localhost:3001
-  Setup 里填 API 地址：http://host.docker.internal:8001
+### 1. Start the Chroma Server
 
-清空表
+Run the following command from the project root directory and keep the terminal window open:
+
+```bash
+chroma run --path backend/chroma_db --host 0.0.0.0 --port 8001
+```
+
+### 2. Start the Chroma Admin UI
+
+```bash
+docker run -d --rm --name chromadb-admin -p 3001:3001 fengzhichao/chromadb-admin
+```
+
+### 3. Open the UI and Connect to Chroma
+
+Open the following URL in your browser:
+
+```text
+http://localhost:3001
+```
+
+In the **Setup** page, enter the Chroma API endpoint:
+
+```text
+http://host.docker.internal:8001
+```
+
+You can then browse collections, inspect embeddings, and view stored documents.
+
+---
+
+## Clearing the Database
+
+To remove all data from the vector database:
+
+```bash
 curl.exe -X POST "http://localhost:8000/clear"
+```
