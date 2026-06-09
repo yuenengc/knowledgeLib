@@ -55,6 +55,7 @@ import os
 import asyncio
 import json
 import re
+from evaluate.api import register_evaluate_routes
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -66,6 +67,7 @@ ALLOWED_EXTS = {".pdf", ".docx"}
 NO_RESULTS_MESSAGE = "未找到相关信息"
 
 app = FastAPI(title="Enterprise Knowledge Base")
+register_evaluate_routes(app)
 
 _cors_origins = os.getenv(
     "CORS_ORIGINS",

@@ -236,6 +236,7 @@ def _split_html_by_headings(html: str) -> list[dict]:
         heading_stack.append({"level": level, "title": title})
         return " > ".join(item["title"] for item in heading_stack if item.get("title"))
 
+    # body.children 对应文档里的每一段内容 这里遍历的粒度是段落
     for el in body.children:
         if not getattr(el, "name", None):
             continue
@@ -268,6 +269,7 @@ def _split_html_by_headings(html: str) -> list[dict]:
     if current["chunks"]:
         sections.append(current)
 
+    #最终返回的粒度是按标题分的，每个section包含一个标题和该标题下的内容块（chunks）。如果文档没有标题，则所有内容都在一个section里，标题为"Untitled"。
     return sections
 
 
@@ -287,7 +289,7 @@ def load_documents(file_path: Path, metadata: dict) -> list:
                     (sec.get("chunks") or [""])[0],
                 )
                 continue
-            text = f"{sec['title']}\n{'\n'.join(sec['chunks'])}".strip()
+            text = f"{'\n'.join(sec['chunks'])}".strip()
             if not text:
                 continue
             docs.append(
@@ -375,7 +377,6 @@ def build_nodes(
         parent_node.metadata["order_idx"] = None
         db_nodes.append(parent_node)
 
-        # Split *within* the section to avoid "title can't hit全文" and keep retrieval granularity.
         child_docs = [Document(text=parent_text, metadata={**metadata, "section_title": section_title})]
         child_nodes = splitter.get_nodes_from_documents(child_docs)
 
@@ -419,7 +420,6 @@ def build_nodes(
 
             # Vector index stores IndexNode children that can resolve to parent sections.
             idx_node = IndexNode.from_text_node(child, index_id=parent_node.node_id)
-            idx_node.obj = parent_node
             index_nodes.append(idx_node)
 
             # SQLite stores the child chunk as-is (for BM25 + chunk-level preview).

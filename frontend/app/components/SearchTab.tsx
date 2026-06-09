@@ -29,6 +29,13 @@ type SearchTabProps = {
   usageText?: string;
 };
 
+type CitationItem = {
+  rank: number;
+  chunk_id?: string;
+  quote_text?: string;
+  file_name?: string;
+};
+
 export default function SearchTab({
   title,
   query,
@@ -155,6 +162,24 @@ export default function SearchTab({
     return parts[0]?.trim() ?? content;
   };
 
+  const groupCitationsByFile = (items: CitationItem[]) => {
+    const groups: { fileName: string; items: CitationItem[] }[] = [];
+    const indexByFile = new Map<string, number>();
+
+    items.forEach((item) => {
+      const fileName = item.file_name || "未知来源";
+      const groupIndex = indexByFile.get(fileName);
+      if (groupIndex === undefined) {
+        indexByFile.set(fileName, groups.length);
+        groups.push({ fileName, items: [item] });
+      } else {
+        groups[groupIndex].items.push(item);
+      }
+    });
+
+    return groups;
+  };
+
   useEffect(() => {
     if (!hasMessages) return;
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -237,31 +262,31 @@ export default function SearchTab({
                           {linkifyCitations(stripCitationSection(message.content), message.id)}
                         </ReactMarkdown>
                         {citationsByMessageId?.[message.id]?.length ? (
-                          <div className="mt-4 space-y-2 text-[12px] text-slate-600">
+                          <div className="mt-4 space-y-3 text-[12px] text-slate-600">
                             <div className="font-semibold text-slate-500">引用</div>
-                            <div className="space-y-1">
-                              {citationsByMessageId[message.id].map((item) => (
-                                <button
-                                  key={`${message.id}-${item.rank}`}
-                                  className="w-full rounded-lg bg-slate-50 px-2 py-1.5 text-left text-blue-700 transition hover:bg-blue-50"
-                                  type="button"
-                                  onClick={() => {
-                                    const ref = item.chunk_id || String(item.rank);
-                                    onCitationClick?.(ref, message.id);
-                                  }}
-                                >
-                                  <span className="line-clamp-2 text-slate-700 underline underline-offset-2">
-                                    <span className="mr-0 shrink-0 text-blue-700">【{item.rank}】</span>
-                                    {item.file_name ? (
-                                      <>
-                                        <strong className="font-semibold text-slate-900">{`《${item.file_name}》`}</strong>
-                                        {item.quote_text ? ` ${item.quote_text}` : ""}
-                                      </>
-                                    ) : (
-                                      item.quote_text || "查看引用"
-                                    )}
-                                  </span>
-                                </button>
+                            <div className="space-y-3">
+                              {groupCitationsByFile(citationsByMessageId[message.id]).map((group) => (
+                                <div key={`${message.id}-${group.fileName}`} className="space-y-1.5">
+                                  <div className="truncate font-semibold text-slate-900">{group.fileName}</div>
+                                  <div className="space-y-1">
+                                    {group.items.map((item) => (
+                                      <button
+                                        key={`${message.id}-${item.rank}`}
+                                        className="flex w-full gap-1.5 rounded-lg bg-slate-50 px-2 py-1.5 text-left text-slate-700 transition hover:bg-blue-50"
+                                        type="button"
+                                        onClick={() => {
+                                          const ref = item.chunk_id || String(item.rank);
+                                          onCitationClick?.(ref, message.id);
+                                        }}
+                                      >
+                                        <span className="shrink-0 font-medium text-blue-700">[{item.rank}]</span>
+                                        <span className="line-clamp-2 underline underline-offset-2">
+                                          {item.quote_text || "查看引用"}
+                                        </span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
                               ))}
                             </div>
                           </div>
@@ -273,7 +298,7 @@ export default function SearchTab({
                         生成中...
                       </div>
                     ) : searchDone ? (
-                      <span className="text-slate-400">未找到相关信息</span>
+                      <span className="text-slate-500">未找到相关信息</span>
                     ) : (
                       <span className="text-slate-400">等待响应...</span>
                     )
