@@ -11,11 +11,9 @@ import threading
 
 from langgraph.graph import StateGraph, END
 from llama_index.core import VectorStoreIndex
-from llama_index.core.base.base_retriever import BaseRetriever
 from rank_bm25 import BM25Okapi
 import jieba
 import httpx
-from llama_index.core.schema import IndexNode, NodeWithScore, QueryBundle
 
 from .db import get_chunk_by_id, list_chunks
 from .settings import (
@@ -288,16 +286,8 @@ def build_search_graph(index: VectorStoreIndex):
         prefix = get_embed_query_prefix()
         vector_query = f"{prefix}{query}" if prefix else query
 
-        class _FixedRetriever(BaseRetriever):
-            def __init__(self, nodes: List[NodeWithScore]):
-                super().__init__()
-                self._nodes = nodes
-
-            def _retrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
-                return self._nodes
-
         def _unwrap_vector_node(obj):
-            # llama-index retrievers typically return NodeWithScore(node=BaseNode, score=float).
+            # llama-index retrievers typically return NodeWithScore(node=..., score=float).
             base = getattr(obj, "node", None) or obj
             score = getattr(obj, "score", None)
             return base, score
@@ -327,37 +317,8 @@ def build_search_graph(index: VectorStoreIndex):
 
         stage_t0 = time.perf_counter()
         retriever = index.as_retriever(similarity_top_k=max(SEARCH_VECTOR_TOP_K, 5))
-        vector_nodes_raw = retriever.retrieve(vector_query)
-        logger.info(LOG_PREFIX + "[timing.retrieve] vector_retrieve_ms=%.1f raw_count=%s", (time.perf_counter() - stage_t0) * 1000, len(vector_nodes_raw))
-
-        # Expand IndexNode -> parent section TextNode (full section text) via RecursiveRetriever.
-        # IndexNodes produced by the indexer embed the parent node in `obj` (serialized in the
-        # vector store payload), enabling parent recovery without a separate docstore.
-        node_dict: Dict[str, BaseNode] = {}
-        for nws in vector_nodes_raw:
-            node = getattr(nws, "node", None) or nws
-            if isinstance(node, IndexNode) and isinstance(node.obj, BaseNode):
-                node_dict[node.index_id] = node.obj
-
-        if node_dict:
-            stage_t0 = time.perf_counter()
-            # Ensure every IndexNode has a resolvable target to avoid RecursiveRetriever errors.
-            for nws in vector_nodes_raw:
-                node = getattr(nws, "node", None) or nws
-                if isinstance(node, IndexNode) and node.index_id not in node_dict:
-                    node_dict[node.index_id] = TextNode(
-                        id_=node.index_id,
-                        text=node.get_content(),
-                        metadata=dict(getattr(node, "metadata", {}) or {}),
-                    )
-            vector_nodes: List[NodeWithScore] = RecursiveRetriever(
-                root_id="root",
-                retriever_dict={"root": _FixedRetriever(vector_nodes_raw)},
-                node_dict=node_dict,
-            ).retrieve(vector_query)
-            logger.info(LOG_PREFIX + "[timing.retrieve] recursive_expand_ms=%.1f expanded_count=%s", (time.perf_counter() - stage_t0) * 1000, len(vector_nodes))
-        else:
-            vector_nodes = vector_nodes_raw
+        vector_nodes = retriever.retrieve(vector_query)
+        logger.info(LOG_PREFIX + "[timing.retrieve] vector_retrieve_ms=%.1f raw_count=%s", (time.perf_counter() - stage_t0) * 1000, len(vector_nodes))
 
         stage_t0 = time.perf_counter()
         bm25, bm25_nodes, _ = _get_bm25()
