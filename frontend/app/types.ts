@@ -17,7 +17,7 @@ export type UploadQueueItem = {
 
 export type SearchResult = {
   score: number | null;
-  text: string;
+  quote_text?: string;
   file_name?: string;
   file_id?: string;
   source_path?: string;

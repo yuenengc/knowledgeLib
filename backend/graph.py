@@ -26,6 +26,7 @@ from .settings import (
     SEARCH_LLM_TOP_K,
     SEARCH_RERANK_THRESHOLD,
     SEARCH_RERANK_MODEL,
+    RRF_K,
 )
 
 try:
@@ -47,7 +48,6 @@ _BM25_CACHE: dict[str, object] = {
 
 class SearchState(TypedDict):
     query: str
-    top_k: int
     results: List[dict]
     stage_results: dict
 
@@ -281,7 +281,6 @@ def build_search_graph(index: VectorStoreIndex):
 
     def retrieve(state: SearchState) -> dict:
         retrieve_t0 = time.perf_counter()
-        top_k = state["top_k"]
         query = state["query"]
         prefix = get_embed_query_prefix()
         vector_query = f"{prefix}{query}" if prefix else query
@@ -309,7 +308,7 @@ def build_search_graph(index: VectorStoreIndex):
             return text.strip() if isinstance(text, str) and text.strip() else ""
 
         logger.info(
-            LOG_PREFIX + "[retrieve] query=%s vector_query=%s top_k=%s",
+            LOG_PREFIX + "[retrieve] query=%s vector_query=%s llm_top_k=%s",
             query,
             vector_query,
             SEARCH_LLM_TOP_K,
@@ -371,7 +370,6 @@ def build_search_graph(index: VectorStoreIndex):
             )
 
         fused: Dict[str, dict] = {}
-        rrf_k = 60.0
 
         stage_t0 = time.perf_counter()
         for rank, obj in enumerate(vector_nodes, start=1):
@@ -391,7 +389,7 @@ def build_search_graph(index: VectorStoreIndex):
                     "parent_id": metadata.get("parent_id"),
                 },
             )
-            item["score"] += 1.0 / (rrf_k + rank)
+            item["score"] += 1.0 / (RRF_K + rank)
 
         for rank, (idx, _score) in enumerate(bm25_ranked, start=1):
             n = bm25_nodes[idx]
@@ -410,7 +408,7 @@ def build_search_graph(index: VectorStoreIndex):
                     "parent_id": n.get("parent_id"),
                 },
             )
-            item["score"] += 1.0 / (rrf_k + rank)
+            item["score"] += 1.0 / (RRF_K + rank)
 
         rrf_candidates = sorted(fused.values(), key=lambda x: x["score"], reverse=True)[:SEARCH_RRF_TOP_K]
         logger.info(LOG_PREFIX + "[timing.retrieve] rrf_fusion_ms=%.1f candidates=%s", (time.perf_counter() - stage_t0) * 1000, len(rrf_candidates))
@@ -480,11 +478,11 @@ def build_search_graph(index: VectorStoreIndex):
     return graph.compile()
 
 
-def run_search(index: VectorStoreIndex, query: str, top_k: int) -> dict:
+def run_search(index: VectorStoreIndex, query: str) -> dict:
     t0 = time.perf_counter()
     graph = build_search_graph(index)
     logger.info(LOG_PREFIX + "[timing.run_search] build_graph_ms=%.1f", (time.perf_counter() - t0) * 1000)
-    state = {"query": query, "top_k": top_k}
+    state = {"query": query}
     invoke_t0 = time.perf_counter()
     result = graph.invoke(state)
     logger.info(

@@ -45,6 +45,8 @@ CHAT_SUMMARY_WINDOW = int(_env("CHAT_SUMMARY_WINDOW", "10") or 10)
 CHAT_WARN_RATIO = float(_env("CHAT_WARN_RATIO", "0.8") or 0.8)
 CHAT_MAX_SESSIONS = int(_env("CHAT_MAX_SESSIONS", "10") or 10)
 
+RRF_K = int(_env("RRF_K", "60") or 60)
+
 SEARCH_BM25_TOP_K = int(_env("SEARCH_BM25_TOP_K", "10") or 10)
 SEARCH_VECTOR_TOP_K = int(_env("SEARCH_VECTOR_TOP_K", "10") or 10)
 SEARCH_RRF_TOP_K = int(_env("SEARCH_RRF_TOP_K", "5") or 5)

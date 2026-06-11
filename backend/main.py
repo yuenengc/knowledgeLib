@@ -46,7 +46,6 @@ from .settings import (
     CHAT_SUMMARY_WINDOW,
     CHAT_WARN_RATIO,
     CHAT_MAX_SESSIONS,
-    SEARCH_LLM_TOP_K,
 )
 from .task_manager import create_task, get_task
 from .upload_worker import enqueue_uploaded_file_processing
@@ -91,7 +90,6 @@ app.add_middleware(
 
 class SearchRequest(BaseModel):
     query: str
-    top_k: int = SEARCH_LLM_TOP_K
     chat_id: str | None = None
 
 
@@ -500,7 +498,7 @@ async def search_stream(request: SearchRequest):
     logger.info("----logger   [timing.search_stream] get_index_ms=%.1f", (time.perf_counter() - stage_t0) * 1000)
 
     stage_t0 = time.perf_counter()
-    payload = run_search(index, query, request.top_k)
+    payload = run_search(index, query)
     results = payload.get("results", [])
     logger.info(
         "----logger   [timing.search_stream] run_search_ms=%.1f results=%s pre_stream_total_ms=%.1f",
@@ -593,7 +591,7 @@ async def search_stream(request: SearchRequest):
         ]
         used_results_payload = [
             {
-                **item,
+                **{key: value for key, value in item.items() if key != "text"},
                 "quote_text": _build_quote_excerpt(item.get("text") or ""),
             }
             for item in used_results

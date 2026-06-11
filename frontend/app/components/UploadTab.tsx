@@ -51,8 +51,9 @@ function formatFileSize(bytes: number) {
 function isAcceptedUploadFile(file: File) {
   const filename = file.name.toLowerCase();
   return (
-    ACCEPTED_UPLOAD_EXTENSIONS.some((extension) => filename.endsWith(extension)) ||
-    ACCEPTED_UPLOAD_TYPES.includes(file.type)
+    ACCEPTED_UPLOAD_EXTENSIONS.some((extension) =>
+      filename.endsWith(extension),
+    ) || ACCEPTED_UPLOAD_TYPES.includes(file.type)
   );
 }
 
@@ -115,6 +116,38 @@ export default function UploadTab({
     return "等待上传";
   };
 
+  const renderProgress = (file: File) => {
+    const item = uploadQueue.find((i) => i.filename === file.name);
+    if (!item) return null;
+    return (
+      <div key={item.id} className="py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div
+              className={`mt-1 text-xs ${item.status === "failed" ? "text-red-600" : "text-slate-500"}`}
+            >
+              {renderQueueStatus(item)} {item.progress}%
+            </div>
+          </div>
+        </div>
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+          <div
+            className={`h-full rounded-full transition-all ${
+              item.status === "failed"
+                ? "bg-red-500"
+                : item.status === "completed"
+                  ? "bg-emerald-500"
+                  : "bg-blue-500"
+            }`}
+            style={{
+              width: `${Math.max(0, Math.min(item.progress, 100))}%`,
+            }}
+          />
+        </div>
+      </div>
+    );
+  };
+
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     if (uploading) return;
     event.preventDefault();
@@ -144,7 +177,9 @@ export default function UploadTab({
 
   const triggerFilePicker = () => {
     if (uploading) return;
-    const input = document.getElementById("upload-input") as HTMLInputElement | null;
+    const input = document.getElementById(
+      "upload-input",
+    ) as HTMLInputElement | null;
     input?.click();
   };
 
@@ -180,21 +215,32 @@ export default function UploadTab({
         <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white text-blue-600 shadow-sm">
           <Upload className="h-6 w-6" />
         </div>
-        <div className="mt-4 text-base font-semibold text-slate-900">点击或拖拽文件上传</div>
-        <div className="mt-2 text-xs text-slate-500">支持 Word(.docx) / PDF，一次最多 3 个文件</div>
+        <div className="mt-4 text-base font-semibold text-slate-900">
+          点击或拖拽文件上传
+        </div>
+        <div className="mt-2 text-xs text-slate-500">
+          支持 Word(.docx) / PDF，一次最多 3 个文件
+        </div>
 
         {selectedFiles.length > 0 && (
           <div className="mt-5 w-full max-w-lg space-y-2">
             {selectedFiles.map((file) => (
-              <div
-                key={`${file.name}-${file.lastModified}-${file.size}`}
-                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left shadow-sm"
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-slate-800">{file.name}</div>
-                  <div className="mt-0.5 text-[11px] text-slate-500">{formatFileSize(file.size)}</div>
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-left shadow-sm">
+                <div
+                  key={`${file.name}-${file.lastModified}-${file.size}`}
+                  className="flex items-center justify-between gap-3 "
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-800">
+                      {file.name}
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-slate-500">
+                      {formatFileSize(file.size)}
+                    </div>
+                  </div>
+                  <FileText className="h-4 w-4 shrink-0 text-slate-400" />
                 </div>
-                <FileText className="h-4 w-4 shrink-0 text-slate-400" />
+                {renderProgress(file)}
               </div>
             ))}
             <button
@@ -207,7 +253,9 @@ export default function UploadTab({
               type="button"
             >
               <FileText className="h-4 w-4" />
-              {uploading ? "上传中..." : `开始上传${selectedFiles.length ? ` (${selectedFiles.length})` : ""}`}
+              {uploading
+                ? "上传中..."
+                : `开始上传${selectedFiles.length ? ` (${selectedFiles.length})` : ""}`}
             </button>
           </div>
         )}
@@ -225,12 +273,16 @@ export default function UploadTab({
       </section>
 
       {uploadError && <div className={alertClass("error")}>{uploadError}</div>}
-      {clearStatus && <div className={alertClass("success")}>{clearStatus}</div>}
+      {clearStatus && (
+        <div className={alertClass("success")}>{clearStatus}</div>
+      )}
       {clearError && <div className={alertClass("error")}>{clearError}</div>}
-      {deleteStatus && <div className={alertClass("success")}>{deleteStatus}</div>}
+      {deleteStatus && (
+        <div className={alertClass("success")}>{deleteStatus}</div>
+      )}
       {deleteError && <div className={alertClass("error")}>{deleteError}</div>}
 
-      {uploadQueue.length > 0 && (
+      {/* {uploadQueue.length > 0 && (
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800">
             上传队列
@@ -240,8 +292,12 @@ export default function UploadTab({
               <div key={item.id} className="px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-slate-900">{item.filename}</div>
-                    <div className={`mt-1 text-xs ${item.status === "failed" ? "text-red-600" : "text-slate-500"}`}>
+                    <div className="truncate text-sm font-semibold text-slate-900">
+                      {item.filename}
+                    </div>
+                    <div
+                      className={`mt-1 text-xs ${item.status === "failed" ? "text-red-600" : "text-slate-500"}`}
+                    >
                       {renderQueueStatus(item)} {item.progress}%
                     </div>
                   </div>
@@ -255,22 +311,30 @@ export default function UploadTab({
                           ? "bg-emerald-500"
                           : "bg-blue-500"
                     }`}
-                    style={{ width: `${Math.max(0, Math.min(item.progress, 100))}%` }}
+                    style={{
+                      width: `${Math.max(0, Math.min(item.progress, 100))}%`,
+                    }}
                   />
                 </div>
               </div>
             ))}
           </div>
         </section>
-      )}
+      )} */}
 
       <div className="flex items-center justify-between pt-1">
         <div>
           <div className="text-sm font-semibold text-slate-900">知识库文档</div>
-          <div className="mt-1 text-xs text-slate-500">{files.length} 个文件</div>
+          <div className="mt-1 text-xs text-slate-500">
+            {files.length} 个文件
+          </div>
         </div>
         {files.length > 0 && (
-          <button className="app-secondary-button text-red-600 hover:text-red-700" onClick={onClearAll} disabled={clearing || uploading}>
+          <button
+            className="app-secondary-button text-red-600 hover:text-red-700"
+            onClick={onClearAll}
+            disabled={clearing || uploading}
+          >
             <Trash2 className="h-4 w-4" />
             {clearing ? "清空中" : "清空"}
           </button>
@@ -284,7 +348,9 @@ export default function UploadTab({
           <div>上传时间</div>
           <div className="text-center">操作</div>
         </div>
-        {files.length === 0 && <div className="px-4 py-5 text-sm text-slate-500">暂无文件</div>}
+        {files.length === 0 && (
+          <div className="px-4 py-5 text-sm text-slate-500">暂无文件</div>
+        )}
         {files.map((file) => {
           const isActive = activeFileId === file.id;
           const isDeleting = deletingFileId === file.id;
@@ -303,16 +369,20 @@ export default function UploadTab({
                 {file.filename}
               </button>
               <div>{renderStatusBadge(file.status)}</div>
-              <div className="text-xs text-slate-500">{formatTimestamp(file.uploaded_at)}</div>
-              <button
-                className="app-icon-button h-8 w-8 hover:text-red-600"
-                onClick={() => onDeleteFile(file.id)}
-                type="button"
-                disabled={isDeleting}
-                aria-label="删除文件"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
+              <div className="text-xs text-slate-500">
+                {formatTimestamp(file.uploaded_at)}
+              </div>
+              {file.status !== "processing" && (
+                <button
+                  className="app-icon-button h-8 w-8 hover:text-red-600"
+                  onClick={() => onDeleteFile(file.id)}
+                  type="button"
+                  disabled={isDeleting}
+                  aria-label="删除文件"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
             </div>
           );
         })}

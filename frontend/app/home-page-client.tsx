@@ -7,7 +7,8 @@ import type { SearchResult, UsageInfo } from "./types";
 import AppShell from "./components/AppShell";
 import SearchTab from "./components/SearchTab";
 
-const API_BASE = process.env.NEXT_PUBLIC_KNOWLEDGE_LIB_API_BASE || "http://localhost:8000";
+const API_BASE =
+  process.env.NEXT_PUBLIC_KNOWLEDGE_LIB_API_BASE || "http://localhost:8000";
 
 type ChatMessage = {
   id: string;
@@ -57,14 +58,26 @@ export default function HomePageClient() {
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [sourceItems, setSourceItems] = useState<any[]>([]);
   const [sourceLoading, setSourceLoading] = useState(false);
-  const [sourcesByMessageId, setSourcesByMessageId] = useState<Record<string, SearchResult[]>>({});
+  const [sourcesByMessageId, setSourcesByMessageId] = useState<
+    Record<string, SearchResult[]>
+  >({});
   const [citationsByMessageId, setCitationsByMessageId] = useState<
-    Record<string, { rank: number; chunk_id?: string; quote_text?: string; file_name?: string; score?: number | null }[]>
+    Record<
+      string,
+      {
+        rank: number;
+        chunk_id?: string;
+        quote_text?: string;
+        file_name?: string;
+        score?: number | null;
+      }[]
+    >
   >({});
 
   const filteredResults = usedResults === null ? results : usedResults;
   const usageText = usage ? `tokens: ${usage.total_tokens ?? "-"}` : undefined;
-  const shouldShowSourcePanel = sourceLoading || selectedSourceId !== null || sourceItems.length > 0;
+  const shouldShowSourcePanel =
+    sourceLoading || selectedSourceId !== null || sourceItems.length > 0;
 
   const resetConversation = () => {
     setQuery("");
@@ -102,7 +115,16 @@ export default function HomePageClient() {
         role: item.role,
         content: item.content,
       }));
-      const nextCitations: Record<string, { rank: number; chunk_id?: string; quote_text?: string; file_name?: string; score?: number | null }[]> = {};
+      const nextCitations: Record<
+        string,
+        {
+          rank: number;
+          chunk_id?: string;
+          quote_text?: string;
+          file_name?: string;
+          score?: number | null;
+        }[]
+      > = {};
       (data.messages || []).forEach((item: any) => {
         if (item.citations?.length) {
           nextCitations[item.id] = item.citations.map((c: any) => ({
@@ -208,7 +230,9 @@ export default function HomePageClient() {
         body: JSON.stringify({ title }),
       });
       if (!res.ok) return;
-      setChatSessions((prev) => prev.map((item) => (item.id === chatId ? { ...item, title } : item)));
+      setChatSessions((prev) =>
+        prev.map((item) => (item.id === chatId ? { ...item, title } : item)),
+      );
     } catch {
       // ignore
     }
@@ -292,7 +316,7 @@ export default function HomePageClient() {
       const res = await fetch(`${API_BASE}/search/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: nextQuery, top_k: 5, chat_id: chatId }),
+        body: JSON.stringify({ query: nextQuery, chat_id: chatId }),
       });
 
       if (!res.ok || !res.body) {
@@ -336,27 +360,37 @@ export default function HomePageClient() {
           if (eventName === "results") {
             const nextResults = payload.results || [];
             setResults(nextResults);
-            setSourcesByMessageId((prev) => ({ ...prev, [assistantId]: nextResults }));
+            setSourcesByMessageId((prev) => ({
+              ...prev,
+              [assistantId]: nextResults,
+            }));
           } else if (eventName === "used_results") {
             setUsedResults(payload.results || []);
             const indices = payload.indices || [];
-            const citations = (payload.results || []).map((item: any, idx: number) => ({
-              rank: indices[idx] ?? idx + 1,
-              chunk_id: item.chunk_id,
-              quote_text: item.quote_text ?? item.text,
-              file_name: item.file_name,
-              score: item.score ?? null,
-            }));
+            const citations = (payload.results || []).map(
+              (item: any, idx: number) => ({
+                rank: indices[idx] ?? idx + 1,
+                chunk_id: item.chunk_id,
+                quote_text: item.quote_text,
+                file_name: item.file_name,
+                score: item.score ?? null,
+              }),
+            );
             if (citations.length > 0) {
-              setCitationsByMessageId((prev) => ({ ...prev, [assistantId]: citations }));
+              setCitationsByMessageId((prev) => ({
+                ...prev,
+                [assistantId]: citations,
+              }));
             }
           } else if (eventName === "delta") {
             const content = payload.content || "";
             if (content) {
               setMessages((prev) =>
                 prev.map((item) =>
-                  item.id === assistantId ? { ...item, content: `${item.content}${content}` } : item
-                )
+                  item.id === assistantId
+                    ? { ...item, content: `${item.content}${content}` }
+                    : item,
+                ),
               );
             }
           } else if (eventName === "usage") {
@@ -387,19 +421,26 @@ export default function HomePageClient() {
     <aside className="order-last flex h-[100vh] flex-col border-l border-slate-200 bg-slate-50 xl:order-none">
       <div className="flex h-[56px] shrink-0 items-center gap-2 border-b border-slate-200 bg-slate-50 px-5">
         <BookOpen className="h-4 w-4 text-slate-600" />
-        <div className="text-base font-bold text-slate-900">引用的原文上下文 ({filteredResults.length})</div>
+        <div className="text-base font-bold text-slate-900">
+          引用的原文上下文 ({filteredResults.length})
+        </div>
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
-        {filteredResults.length === 0 && (
+        {/* {filteredResults.length === 0 && (
           <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
             点击回答中的引用编号，右侧会展示对应的原文片段。
           </div>
-        )}
+        )} */}
 
         {filteredResults.map((item, index) => {
-          const score = typeof item.score === "number" ? `${Math.round(item.score * 100)}%` : "参考";
-          const isActive = selectedSourceId === item.file_id || selectedSourceId === item.chunk_id;
+          const score =
+            typeof item.score === "number"
+              ? `${Math.round(item.score * 100)}%`
+              : "参考";
+          const isActive =
+            selectedSourceId === item.file_id ||
+            selectedSourceId === item.chunk_id;
           return (
             <button
               key={`${item.chunk_id ?? item.file_id ?? "unknown"}-${index}`}
@@ -417,7 +458,7 @@ export default function HomePageClient() {
                 }
               }}
             >
-              <div className="flex items-start justify-between gap-3">
+              {/* <div className="flex items-start justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-md bg-indigo-600 px-1.5 text-xs font-bold text-white">
                     {index + 1}
@@ -429,9 +470,15 @@ export default function HomePageClient() {
                 <span className="shrink-0 rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
                   置信度 {score}
                 </span>
-              </div>
+              </div> */}
               <div className="mt-3 rounded-lg bg-slate-50 px-3 py-3 text-sm leading-6 text-slate-700">
-                “{((item as any).quote_text || item.text || "暂无原文摘要").slice(0, 140)}...”
+                “
+                {(
+                  (item as any).quote_text ||
+                  item.text ||
+                  "暂无原文摘要"
+                ).slice(0, 140)}
+                ...”
               </div>
               <div className="mt-3 text-right text-xs text-slate-400">
                 来源：{item.file_name || "知识库文档"}
@@ -448,22 +495,29 @@ export default function HomePageClient() {
 
         {!sourceLoading && sourceItems.length > 0 && (
           <div className="space-y-3 pt-2">
-            <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Source Preview</div>
             {sourceItems.map((item, index) => (
               <div
                 key={`${item.id ?? "source"}-${index}`}
                 className="rounded-lg border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-700"
               >
-                <div className="mb-2 font-semibold text-slate-900">{item.file_name || "Unknown source"}</div>
+                <div className="mb-2 font-semibold text-slate-900">
+                  {item.file_name || "Unknown source"}
+                </div>
                 {isTableText(item.text) ? (
-                  <pre className="whitespace-pre-wrap font-mono text-xs">{item.text}</pre>
+                  <pre className="whitespace-pre-wrap font-mono text-xs">
+                    {item.text}
+                  </pre>
                 ) : (
                   <div className="whitespace-pre-wrap">
                     {(() => {
                       const { title, body } = formatResultText(item.text || "");
                       return (
                         <>
-                          {title && <div className="font-medium text-slate-900">{title}</div>}
+                          {title && (
+                            <div className="font-medium text-slate-900">
+                              {title}
+                            </div>
+                          )}
                           {body ? `\n\n${body}` : ""}
                         </>
                       );
@@ -517,14 +571,18 @@ export default function HomePageClient() {
               if (!ref) return;
               if (!Number.isNaN(Number(ref))) {
                 const index = Number(ref);
-                const local = messageId ? sourcesByMessageId[messageId] : undefined;
+                const local = messageId
+                  ? sourcesByMessageId[messageId]
+                  : undefined;
                 const source = local?.[index - 1];
                 if (source?.chunk_id) {
                   loadSourceByChunkId(source.chunk_id);
                   return;
                 }
                 const citation = messageId
-                  ? citationsByMessageId[messageId]?.find((item) => item.rank === index)
+                  ? citationsByMessageId[messageId]?.find(
+                      (item) => item.rank === index,
+                    )
                   : undefined;
                 if (citation?.chunk_id) {
                   loadSourceByChunkId(citation.chunk_id);

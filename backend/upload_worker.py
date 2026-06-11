@@ -48,9 +48,16 @@ def enqueue_uploaded_file_processing(
 
 
 def _remove_previous_versions(filename: str, current_file_id: str, task_id: str) -> None:
-    existing_files = [
-        item for item in get_files_by_name(filename) if item.get("id") != current_file_id
-    ]
+    same_name_files = get_files_by_name(filename)
+    current_file = next((item for item in same_name_files if item.get("id") == current_file_id), None)
+    current_uploaded_at = (current_file or {}).get("uploaded_at")
+    existing_files = []
+    for item in same_name_files:
+        if item.get("id") == current_file_id:
+            continue
+        if current_uploaded_at and item.get("uploaded_at") and item["uploaded_at"] > current_uploaded_at:
+            continue
+        existing_files.append(item)
     if not existing_files:
         return
 
@@ -94,8 +101,6 @@ def process_uploaded_file(
     }
 
     try:
-        _remove_previous_versions(filename, file_id, task_id)
-
         update_task(task_id, status="parsing", progress=10)
         logger.info("%s parsing started filename=%s path=%s", _task_prefix(task_id), filename, stored_path)
         docs = load_documents(stored_path, metadata)
@@ -145,6 +150,15 @@ def process_uploaded_file(
             ]
         )
         update_file_status(file_id, "ready")
+        try:
+            _remove_previous_versions(filename, file_id, task_id)
+        except Exception:
+            logger.warning(
+                "%s failed to clean previous versions after new file became ready filename=%s",
+                _task_prefix(task_id),
+                filename,
+                exc_info=True,
+            )
         update_task(task_id, status="completed", progress=100)
         logger.info("%s ingestion completed filename=%s", _task_prefix(task_id), filename)
     except HTTPException as exc:
