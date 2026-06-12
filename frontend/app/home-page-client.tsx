@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BookOpen } from "lucide-react";
+import { BookOpen, X } from "lucide-react";
 import type { SearchResult, UsageInfo } from "./types";
 import AppShell from "./components/AppShell";
 import SearchTab from "./components/SearchTab";
@@ -50,6 +50,7 @@ export default function HomePageClient() {
   const [usedResults, setUsedResults] = useState<SearchResult[] | null>(null);
   const [usage, setUsage] = useState<UsageInfo | null>(null);
   const [searching, setSearching] = useState(false);
+  const [searchPhase, setSearchPhase] = useState<"idle" | "retrieving" | "reasoning" | "generating">("idle");
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchDone, setSearchDone] = useState(false);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
@@ -58,9 +59,9 @@ export default function HomePageClient() {
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [sourceItems, setSourceItems] = useState<any[]>([]);
   const [sourceLoading, setSourceLoading] = useState(false);
-  const [sourcesByMessageId, setSourcesByMessageId] = useState<
-    Record<string, SearchResult[]>
-  >({});
+  const [isSourcePanelOpen, setIsSourcePanelOpen] = useState(false);
+  const [sourceCount, setSourceCount] = useState<number | null>(null);
+  const [sourcesByMessageId, setSourcesByMessageId] = useState<Record<string, SearchResult[]>>({});
   const [citationsByMessageId, setCitationsByMessageId] = useState<
     Record<
       string,
@@ -76,9 +77,6 @@ export default function HomePageClient() {
 
   const filteredResults = usedResults === null ? results : usedResults;
   const usageText = usage ? `tokens: ${usage.total_tokens ?? "-"}` : undefined;
-  const shouldShowSourcePanel =
-    sourceLoading || selectedSourceId !== null || sourceItems.length > 0;
-
   const resetConversation = () => {
     setQuery("");
     setMessages([]);
@@ -100,6 +98,17 @@ export default function HomePageClient() {
       if (!res.ok) return;
       const data = await res.json();
       setChatSessions(data.chats || []);
+    } catch {
+      // ignore
+    }
+  };
+
+  const fetchSourceCount = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/files`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setSourceCount((data.files || []).length);
     } catch {
       // ignore
     }
@@ -176,6 +185,7 @@ export default function HomePageClient() {
   const loadSourceByFileId = async (fileId: string | null) => {
     if (!fileId) return;
     setSelectedSourceId(fileId);
+    setIsSourcePanelOpen(true);
     setSourceLoading(true);
     try {
       const res = await fetch(`${API_BASE}/sources/${fileId}?limit=3`);
@@ -192,6 +202,7 @@ export default function HomePageClient() {
   const loadSourceByChunkId = async (chunkId: string | null) => {
     if (!chunkId) return;
     setSelectedSourceId(chunkId);
+    setIsSourcePanelOpen(true);
     setSourceLoading(true);
     try {
       const res = await fetch(`${API_BASE}/chunks/${chunkId}`);
@@ -260,6 +271,7 @@ export default function HomePageClient() {
 
   useEffect(() => {
     fetchChats();
+    fetchSourceCount();
   }, []);
 
   useEffect(() => {
@@ -278,8 +290,9 @@ export default function HomePageClient() {
     setUsedResults(null);
     setUsage(null);
     setSearchDone(false);
+    setSearchPhase("idle");
     setSelectedSourceId(null);
-    setSourceItems([]);
+    // setSourceItems([]);
 
     const nextQuery = query.trim();
     if (!nextQuery) {
@@ -304,6 +317,7 @@ export default function HomePageClient() {
 
     setQuery("");
     setSearching(true);
+    setSearchPhase("retrieving");
     const timeKey = Date.now();
     const assistantId = `assistant-${timeKey}`;
     setMessages((prev) => [
@@ -360,12 +374,11 @@ export default function HomePageClient() {
           if (eventName === "results") {
             const nextResults = payload.results || [];
             setResults(nextResults);
-            setSourcesByMessageId((prev) => ({
-              ...prev,
-              [assistantId]: nextResults,
-            }));
+            setSourcesByMessageId((prev) => ({ ...prev, [assistantId]: nextResults }));
+            setSearchPhase("retrieving");
           } else if (eventName === "used_results") {
             setUsedResults(payload.results || []);
+            setSearchPhase("reasoning");
             const indices = payload.indices || [];
             const citations = (payload.results || []).map(
               (item: any, idx: number) => ({
@@ -385,6 +398,7 @@ export default function HomePageClient() {
           } else if (eventName === "delta") {
             const content = payload.content || "";
             if (content) {
+              setSearchPhase("generating");
               setMessages((prev) =>
                 prev.map((item) =>
                   item.id === assistantId
@@ -399,6 +413,7 @@ export default function HomePageClient() {
             setSearchError(payload.message || "Search failed.");
           } else if (eventName === "done") {
             setSearchDone(true);
+            setSearchPhase("idle");
           }
         }
       }
@@ -414,78 +429,32 @@ export default function HomePageClient() {
       }
     } finally {
       setSearching(false);
+      setSearchPhase("idle");
     }
   };
 
   const rightPanel = (
-    <aside className="order-last flex h-[100vh] flex-col border-l border-slate-200 bg-slate-50 xl:order-none">
-      <div className="flex h-[56px] shrink-0 items-center gap-2 border-b border-slate-200 bg-slate-50 px-5">
-        <BookOpen className="h-4 w-4 text-slate-600" />
-        <div className="text-base font-bold text-slate-900">
-          引用的原文上下文 ({filteredResults.length})
+    <aside
+      className={`order-last flex h-[100vh] min-h-0 flex-col border-l border-slate-200 bg-white transition-transform duration-300 ease-out ${isSourcePanelOpen ? "translate-x-0" : "translate-x-4"
+        }`}
+      aria-hidden={!isSourcePanelOpen}
+    >
+      <div className="flex h-[56px] shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5">
+        <div className="flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-slate-600" />
+          <div className="text-base font-bold text-slate-900">来源 ({filteredResults.length})</div>
         </div>
+        <button
+          className="app-icon-button h-8 w-8"
+          onClick={() => setIsSourcePanelOpen(false)}
+          type="button"
+          aria-label="关闭来源栏"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
-        {/* {filteredResults.length === 0 && (
-          <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
-            点击回答中的引用编号，右侧会展示对应的原文片段。
-          </div>
-        )} */}
-
-        {filteredResults.map((item, index) => {
-          const score =
-            typeof item.score === "number"
-              ? `${Math.round(item.score * 100)}%`
-              : "参考";
-          const isActive =
-            selectedSourceId === item.file_id ||
-            selectedSourceId === item.chunk_id;
-          return (
-            <button
-              key={`${item.chunk_id ?? item.file_id ?? "unknown"}-${index}`}
-              className={`w-full rounded-lg border bg-white p-4 text-left transition ${
-                isActive
-                  ? "border-indigo-200 ring-1 ring-indigo-200"
-                  : "border-slate-200 hover:border-indigo-200"
-              }`}
-              type="button"
-              onClick={() => {
-                if (item.chunk_id) {
-                  loadSourceByChunkId(item.chunk_id);
-                } else {
-                  loadSourceByFileId(item.file_id ?? null);
-                }
-              }}
-            >
-              {/* <div className="flex items-start justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-md bg-indigo-600 px-1.5 text-xs font-bold text-white">
-                    {index + 1}
-                  </span>
-                  <span className="truncate text-sm font-medium text-slate-700">
-                    {item.file_name || "Unknown source"}
-                  </span>
-                </div>
-                <span className="shrink-0 rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
-                  置信度 {score}
-                </span>
-              </div> */}
-              <div className="mt-3 rounded-lg bg-slate-50 px-3 py-3 text-sm leading-6 text-slate-700">
-                “
-                {(
-                  (item as any).quote_text ||
-                  item.text ||
-                  "暂无原文摘要"
-                ).slice(0, 140)}
-                ...”
-              </div>
-              <div className="mt-3 text-right text-xs text-slate-400">
-                来源：{item.file_name || "知识库文档"}
-              </div>
-            </button>
-          );
-        })}
 
         {sourceLoading && (
           <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
@@ -538,6 +507,7 @@ export default function HomePageClient() {
       chatSessions={chatSessions}
       activeChatId={activeChatId}
       rightPanel={rightPanel}
+      isRightPanelOpen={isSourcePanelOpen}
       onNewChat={() => {
         resetConversation();
         setActiveChatId("new");
@@ -567,6 +537,7 @@ export default function HomePageClient() {
             searchDone={searchDone}
             searchError={searchError}
             warning={warning}
+            searchPhase={searching ? searchPhase : "idle"}
             onCitationClick={(ref, messageId) => {
               if (!ref) return;
               if (!Number.isNaN(Number(ref))) {
@@ -581,8 +552,8 @@ export default function HomePageClient() {
                 }
                 const citation = messageId
                   ? citationsByMessageId[messageId]?.find(
-                      (item) => item.rank === index,
-                    )
+                    (item) => item.rank === index,
+                  )
                   : undefined;
                 if (citation?.chunk_id) {
                   loadSourceByChunkId(citation.chunk_id);
@@ -593,6 +564,7 @@ export default function HomePageClient() {
             }}
             messages={messages}
             usageText={usageText}
+            sourceCount={sourceCount ?? undefined}
             citationsByMessageId={citationsByMessageId}
           />
         </div>

@@ -27,6 +27,7 @@ type AppShellProps = {
   activeChatId: string;
   children: (ctx: { activeChatTitle: string; activeChatId: string }) => ReactNode;
   rightPanel?: ReactNode;
+  isRightPanelOpen?: boolean;
   onNewChat?: () => void;
   onSelectChat?: (id: string) => void;
   onRenameChat?: (id: string, title: string) => void;
@@ -39,6 +40,7 @@ export default function AppShell({
   activeChatId,
   children,
   rightPanel,
+  isRightPanelOpen = false,
   onNewChat,
   onSelectChat,
   onRenameChat,
@@ -179,7 +181,7 @@ export default function AppShell({
                       return (
                       <div
                         key={session.id}
-                        className={`flex h-10 items-center justify-between rounded-lg px-3 text-xs transition ${
+                        className={`group flex h-10 items-center justify-between rounded-lg px-3 text-xs transition ${
                           isActive
                             ? "bg-blue-50 font-semibold text-blue-700 ring-1 ring-blue-100"
                             : "text-slate-700 hover:bg-slate-50"
@@ -222,6 +224,8 @@ export default function AppShell({
                             <>
                               <button
                                 className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition ${
+                                  "opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
+                                } ${
                                   isActive ? "text-slate-700" : "text-slate-400 hover:text-slate-700"
                                 }`}
                                 data-chat-menu-trigger="true"
@@ -323,12 +327,20 @@ export default function AppShell({
           </header> */}
 
           <div className="min-h-0 flex-1">
-            <div className={`grid h-full min-h-0 ${rightPanel ? "xl:grid-cols-[minmax(0,1fr)_464px]" : ""}`}>
-              <div className="min-h-0">
-                {children({ activeChatTitle, activeChatId })}
-              </div>
+            <div
+              className={`grid h-full min-h-0 transition-[grid-template-columns] duration-300 ease-out ${
+                isRightPanelOpen ? "xl:grid-cols-[minmax(0,1fr)_464px]" : "xl:grid-cols-[minmax(0,1fr)_0px]"
+              }`}
+            >
+              <div className="min-h-0">{children({ activeChatTitle, activeChatId })}</div>
+              <div
+                className={`min-h-0 overflow-hidden transition-all duration-300 ease-out ${
+                  isRightPanelOpen ? "opacity-100" : "pointer-events-none opacity-0"
+                }`}
+              >
                 {rightPanel}
               </div>
+            </div>
           </div>
         </div>
       </div>

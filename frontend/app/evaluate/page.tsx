@@ -60,6 +60,13 @@ type EvalPayload = {
   details: QueryDetail[];
 };
 
+type StageAggregateRow = {
+  stage: string;
+  precision: number;
+  recall: number;
+  mrr: number;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 
 export default function EvaluatePage() {
@@ -73,6 +80,37 @@ export default function EvaluatePage() {
     () => ["vector", "bm25", "rrf", "rerank", "llm"],
     [],
   );
+
+  const stageAggregateRows = useMemo<StageAggregateRow[]>(() => {
+    if (!payload?.details.length) return [];
+
+    const stageSet = new Set<string>();
+    for (const item of payload.details) {
+      Object.keys(item.stage_metrics || {}).forEach((stage) => stageSet.add(stage));
+    }
+
+    return Array.from(stageSet)
+      .sort((a, b) => {
+        const aIndex = stageOrder.indexOf(a);
+        const bIndex = stageOrder.indexOf(b);
+        if (aIndex === -1 && bIndex === -1) return a.localeCompare(b);
+        if (aIndex === -1) return 1;
+        if (bIndex === -1) return -1;
+        return aIndex - bIndex;
+      })
+      .map((stage) => {
+        const metrics = payload.details
+          .map((item) => item.stage_metrics?.[stage])
+          .filter((value): value is NonNullable<typeof value> => Boolean(value));
+        const count = metrics.length || 1;
+        return {
+          stage,
+          precision: metrics.reduce((sum, item) => sum + item.precision_at_k, 0) / count,
+          recall: metrics.reduce((sum, item) => sum + item.recall_at_k, 0) / count,
+          mrr: metrics.reduce((sum, item) => sum + item.mrr, 0) / count,
+        };
+      });
+  }, [payload, stageOrder]);
 
   useEffect(() => {
     if (!payload) return;
@@ -242,6 +280,40 @@ export default function EvaluatePage() {
                 </div>
               ))}
             </section>
+
+            {!!stageAggregateRows.length && (
+              <section className="rounded-3xl border border-white/10 bg-white/5 p-5 shadow-lg shadow-black/20">
+                <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-white">Stage averages</div>
+                    <div className="mt-1 text-xs text-slate-400">Mean metrics across all queries for each retrieval stage.</div>
+                  </div>
+                  <div className="text-xs text-slate-500">Precision / Recall / MRR</div>
+                </div>
+                <div className="mt-4 overflow-x-auto">
+                  <table className="min-w-full border-separate border-spacing-0 text-sm">
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-[0.2em] text-slate-400">
+                        <th className="border-b border-white/10 px-4 py-3">Stage</th>
+                        <th className="border-b border-white/10 px-4 py-3">Precision</th>
+                        <th className="border-b border-white/10 px-4 py-3">Recall</th>
+                        <th className="border-b border-white/10 px-4 py-3">MRR</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stageAggregateRows.map((row) => (
+                        <tr key={row.stage} className="text-slate-100">
+                          <td className="border-b border-white/5 px-4 py-3 font-medium">{row.stage.toUpperCase()}</td>
+                          <td className="border-b border-white/5 px-4 py-3">{row.precision.toFixed(4)}</td>
+                          <td className="border-b border-white/5 px-4 py-3">{row.recall.toFixed(4)}</td>
+                          <td className="border-b border-white/5 px-4 py-3">{row.mrr.toFixed(4)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
 
             <section className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
               <aside className="rounded-3xl border border-white/10 bg-white/5 p-4 shadow-lg shadow-black/20">
