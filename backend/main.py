@@ -368,7 +368,7 @@ def _enforce_chat_limits(chat_id: str) -> None:
 def _strip_citations_from_content(text: str) -> str:
     if not text:
         return ""
-    parts = re.split(r"\n### 引用[\s\S]*$", text, flags=re.MULTILINE)
+    parts = re.split(r"\n### （引用|参考）[\s\S]*$", text, flags=re.MULTILINE)
     cleaned = parts[0] if parts else text
     return cleaned.strip()
 

@@ -132,13 +132,12 @@ export default function UploadTab({
         </div>
         <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
           <div
-            className={`h-full rounded-full transition-all ${
-              item.status === "failed"
+            className={`h-full rounded-full transition-all ${item.status === "failed"
                 ? "bg-red-500"
                 : item.status === "completed"
                   ? "bg-emerald-500"
                   : "bg-blue-500"
-            }`}
+              }`}
             style={{
               width: `${Math.max(0, Math.min(item.progress, 100))}%`,
             }}
@@ -188,16 +187,26 @@ export default function UploadTab({
       ? "rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700"
       : "rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700";
 
+  const isShowingUploadProgress = uploadQueue.length > 0;
+  const progressItems = isShowingUploadProgress
+    ? uploadQueue
+    : selectedFiles.map((file, index) => ({
+      id: `${file.name}-${file.lastModified}-${file.size}-${index}`,
+      filename: file.name,
+      progress: 0,
+      status: "uploading" as const,
+      error: null,
+      message: "",
+    }));
+
   return (
     <div className="space-y-5">
       <section
-        className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed px-6 py-8 text-center transition ${
-          uploading ? "cursor-not-allowed opacity-70" : ""
-        } ${
-          isDragging
+        className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed px-6 py-8 text-center transition ${uploading ? "cursor-not-allowed opacity-70" : ""
+          } ${isDragging
             ? "border-blue-400 bg-blue-50"
             : "border-slate-300 bg-slate-50 hover:border-blue-300 hover:bg-blue-50/50"
-        }`}
+          }`}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragEnter={handleDragEnter}
@@ -222,7 +231,7 @@ export default function UploadTab({
           支持 Word(.docx) / PDF，一次最多 3 个文件
         </div>
 
-        {selectedFiles.length > 0 && (
+        {selectedFiles.length > 0 && !isShowingUploadProgress && (
           <div className="mt-5 w-full max-w-lg space-y-2">
             {selectedFiles.map((file) => (
               <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-left shadow-sm">
@@ -257,6 +266,41 @@ export default function UploadTab({
                 ? "上传中..."
                 : `开始上传${selectedFiles.length ? ` (${selectedFiles.length})` : ""}`}
             </button>
+          </div>
+        )}
+        {isShowingUploadProgress && progressItems.length > 0 && (
+          <div className="mt-5 w-full max-w-xl space-y-2 text-left">
+            {progressItems.map((item) => (
+              <div key={item.id} className="rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-900">{item.filename}</div>
+                    <div className={`mt-1 text-xs ${item.status === "failed" ? "text-red-600" : "text-slate-500"}`}>
+                      {item.status === "completed"
+                        ? "已完成"
+                        : item.status === "failed"
+                          ? item.error || "失败"
+                          : item.status === "uploading"
+                            ? "上传中"
+                            : item.message || "处理中"}
+                      <span className="ml-2">{Math.max(0, Math.min(item.progress, 100))}%</span>
+                    </div>
+                  </div>
+                  <FileText className="h-4 w-4 shrink-0 text-slate-400" />
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className={`h-full rounded-full transition-all ${item.status === "failed"
+                        ? "bg-red-500"
+                        : item.status === "completed"
+                          ? "bg-emerald-500"
+                          : "bg-blue-500"
+                      }`}
+                    style={{ width: `${Math.max(0, Math.min(item.progress, 100))}%` }}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         )}
         <input
@@ -357,9 +401,8 @@ export default function UploadTab({
           return (
             <div
               key={file.id}
-              className={`grid grid-cols-[1.2fr_0.7fr_0.9fr_44px] gap-3 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0 ${
-                isActive ? "bg-blue-50/60" : "bg-white"
-              }`}
+              className={`grid grid-cols-[1.2fr_0.7fr_0.9fr_44px] gap-3 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0 ${isActive ? "bg-blue-50/60" : "bg-white"
+                }`}
             >
               <button
                 className="truncate text-left font-medium text-slate-900 hover:text-blue-700"

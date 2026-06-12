@@ -50,6 +50,7 @@ export default function HomePageClient() {
   const [usedResults, setUsedResults] = useState<SearchResult[] | null>(null);
   const [usage, setUsage] = useState<UsageInfo | null>(null);
   const [searching, setSearching] = useState(false);
+  const [searchPhase, setSearchPhase] = useState<"idle" | "retrieving" | "reasoning" | "generating">("idle");
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchDone, setSearchDone] = useState(false);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
@@ -59,6 +60,7 @@ export default function HomePageClient() {
   const [sourceItems, setSourceItems] = useState<any[]>([]);
   const [sourceLoading, setSourceLoading] = useState(false);
   const [isSourcePanelOpen, setIsSourcePanelOpen] = useState(false);
+  const [sourceCount, setSourceCount] = useState<number | null>(null);
   const [sourcesByMessageId, setSourcesByMessageId] = useState<Record<string, SearchResult[]>>({});
   const [citationsByMessageId, setCitationsByMessageId] = useState<
     Record<
@@ -96,6 +98,17 @@ export default function HomePageClient() {
       if (!res.ok) return;
       const data = await res.json();
       setChatSessions(data.chats || []);
+    } catch {
+      // ignore
+    }
+  };
+
+  const fetchSourceCount = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/files`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setSourceCount((data.files || []).length);
     } catch {
       // ignore
     }
@@ -258,6 +271,7 @@ export default function HomePageClient() {
 
   useEffect(() => {
     fetchChats();
+    fetchSourceCount();
   }, []);
 
   useEffect(() => {
@@ -276,6 +290,7 @@ export default function HomePageClient() {
     setUsedResults(null);
     setUsage(null);
     setSearchDone(false);
+    setSearchPhase("idle");
     setSelectedSourceId(null);
     // setSourceItems([]);
 
@@ -302,6 +317,7 @@ export default function HomePageClient() {
 
     setQuery("");
     setSearching(true);
+    setSearchPhase("retrieving");
     const timeKey = Date.now();
     const assistantId = `assistant-${timeKey}`;
     setMessages((prev) => [
@@ -358,12 +374,11 @@ export default function HomePageClient() {
           if (eventName === "results") {
             const nextResults = payload.results || [];
             setResults(nextResults);
-            setSourcesByMessageId((prev) => ({
-              ...prev,
-              [assistantId]: nextResults,
-            }));
+            setSourcesByMessageId((prev) => ({ ...prev, [assistantId]: nextResults }));
+            setSearchPhase("retrieving");
           } else if (eventName === "used_results") {
             setUsedResults(payload.results || []);
+            setSearchPhase("reasoning");
             const indices = payload.indices || [];
             const citations = (payload.results || []).map(
               (item: any, idx: number) => ({
@@ -383,6 +398,7 @@ export default function HomePageClient() {
           } else if (eventName === "delta") {
             const content = payload.content || "";
             if (content) {
+              setSearchPhase("generating");
               setMessages((prev) =>
                 prev.map((item) =>
                   item.id === assistantId
@@ -397,6 +413,7 @@ export default function HomePageClient() {
             setSearchError(payload.message || "Search failed.");
           } else if (eventName === "done") {
             setSearchDone(true);
+            setSearchPhase("idle");
           }
         }
       }
@@ -412,6 +429,7 @@ export default function HomePageClient() {
       }
     } finally {
       setSearching(false);
+      setSearchPhase("idle");
     }
   };
 
@@ -519,6 +537,7 @@ export default function HomePageClient() {
             searchDone={searchDone}
             searchError={searchError}
             warning={warning}
+            searchPhase={searching ? searchPhase : "idle"}
             onCitationClick={(ref, messageId) => {
               if (!ref) return;
               if (!Number.isNaN(Number(ref))) {
@@ -545,6 +564,7 @@ export default function HomePageClient() {
             }}
             messages={messages}
             usageText={usageText}
+            sourceCount={sourceCount ?? undefined}
             citationsByMessageId={citationsByMessageId}
           />
         </div>
