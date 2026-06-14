@@ -14,6 +14,8 @@ class EvaluateRequest(BaseModel):
     target: str | None = None
     evaluator: str | None = None
     top_k: int | None = None
+    candidate_pool_top_k: int | None = None
+    ranking_evaluation_top_k: int | None = None
     include_stage_metrics: bool = True
     options: dict[str, Any] | None = None
 
@@ -29,6 +31,8 @@ def register_evaluate_routes(app) -> None:
                 target=payload.target,
                 evaluator=payload.evaluator,
                 top_k=payload.top_k,
+                candidate_pool_top_k=payload.candidate_pool_top_k,
+                ranking_evaluation_top_k=payload.ranking_evaluation_top_k,
                 include_stage_metrics=payload.include_stage_metrics,
                 options=payload.options,
             )

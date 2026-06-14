@@ -17,6 +17,8 @@ TESTSET_PATH = EVALUATE_DIR / "testset.json"
 
 DEFAULT_TARGET = "default_rag"
 DEFAULT_EVALUATOR = "fuzzy_fragment"
+ALLOWED_CANDIDATE_POOL_TOP_K = {10, 20, 50, 100}
+ALLOWED_RANKING_EVALUATION_TOP_K = {3, 5, 7}
 
 
 def _load_testset() -> dict:
@@ -61,9 +63,24 @@ def run_evaluation(
     target: str | None = None,
     evaluator: str | None = None,
     top_k: int | None = None,
+    candidate_pool_top_k: int | None = None,
+    ranking_evaluation_top_k: int | None = None,
     include_stage_metrics: bool = True,
     options: dict[str, Any] | None = None,
 ) -> dict:
+    if (
+        candidate_pool_top_k is not None
+        and candidate_pool_top_k not in ALLOWED_CANDIDATE_POOL_TOP_K
+    ):
+        allowed = ", ".join(str(value) for value in sorted(ALLOWED_CANDIDATE_POOL_TOP_K))
+        raise ValueError(f"candidate_pool_top_k must be one of: {allowed}")
+    if (
+        ranking_evaluation_top_k is not None
+        and ranking_evaluation_top_k not in ALLOWED_RANKING_EVALUATION_TOP_K
+    ):
+        allowed = ", ".join(str(value) for value in sorted(ALLOWED_RANKING_EVALUATION_TOP_K))
+        raise ValueError(f"ranking_evaluation_top_k must be one of: {allowed}")
+
     configure_llm()
     testset = _load_testset()
     target_plugin = _resolve_target(target)
@@ -71,6 +88,8 @@ def run_evaluation(
     eval_options = EvaluationOptions(
         threshold=threshold,
         top_k=top_k,
+        candidate_pool_top_k=candidate_pool_top_k,
+        ranking_evaluation_top_k=ranking_evaluation_top_k,
         include_stage_metrics=include_stage_metrics,
         extra=options or {},
     )

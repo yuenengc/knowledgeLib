@@ -68,6 +68,8 @@ type StageAggregateRow = {
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+const candidatePoolTopKOptions = [10, 20, 50, 100] as const;
+const rankingEvaluationTopKOptions = [3, 5, 7] as const;
 
 export default function EvaluatePage() {
   const [running, setRunning] = useState(false);
@@ -75,6 +77,8 @@ export default function EvaluatePage() {
   const [error, setError] = useState<string | null>(null);
   const [activeStages, setActiveStages] = useState<Record<string, string>>({});
   const [selectedQueryId, setSelectedQueryId] = useState<string | null>(null);
+  const [candidatePoolTopK, setCandidatePoolTopK] = useState("");
+  const [rankingEvaluationTopK, setRankingEvaluationTopK] = useState("");
 
   const stageOrder = useMemo(
     () => ["vector", "bm25", "rrf", "rerank", "llm"],
@@ -86,7 +90,9 @@ export default function EvaluatePage() {
 
     const stageSet = new Set<string>();
     for (const item of payload.details) {
-      Object.keys(item.stage_metrics || {}).forEach((stage) => stageSet.add(stage));
+      Object.keys(item.stage_metrics || {}).forEach((stage) =>
+        stageSet.add(stage),
+      );
     }
 
     return Array.from(stageSet)
@@ -101,12 +107,16 @@ export default function EvaluatePage() {
       .map((stage) => {
         const metrics = payload.details
           .map((item) => item.stage_metrics?.[stage])
-          .filter((value): value is NonNullable<typeof value> => Boolean(value));
+          .filter((value): value is NonNullable<typeof value> =>
+            Boolean(value),
+          );
         const count = metrics.length || 1;
         return {
           stage,
-          precision: metrics.reduce((sum, item) => sum + item.precision_at_k, 0) / count,
-          recall: metrics.reduce((sum, item) => sum + item.recall_at_k, 0) / count,
+          precision:
+            metrics.reduce((sum, item) => sum + item.precision_at_k, 0) / count,
+          recall:
+            metrics.reduce((sum, item) => sum + item.recall_at_k, 0) / count,
           mrr: metrics.reduce((sum, item) => sum + item.mrr, 0) / count,
         };
       });
@@ -133,10 +143,21 @@ export default function EvaluatePage() {
     setRunning(true);
     setError(null);
     try {
+      const body: {
+        threshold: number;
+        candidate_pool_top_k?: number;
+        ranking_evaluation_top_k?: number;
+      } = { threshold: 0.85 };
+      if (candidatePoolTopK) {
+        body.candidate_pool_top_k = Number(candidatePoolTopK);
+      }
+      if (rankingEvaluationTopK) {
+        body.ranking_evaluation_top_k = Number(rankingEvaluationTopK);
+      }
       const res = await fetch(`${API_BASE}/evaluate/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ threshold: 0.85 }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         throw new Error(await res.text());
@@ -228,6 +249,46 @@ export default function EvaluatePage() {
               {running ? "Running..." : "Start evaluation"}
             </button>
           </div>
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                Candidate Pool Size (Retrieval TopK)
+              </span>
+              <select
+                value={candidatePoolTopK}
+                onChange={(event) => setCandidatePoolTopK(event.target.value)}
+                disabled={running}
+                className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-3 text-sm text-slate-100 outline-none transition hover:border-white/20 focus:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <option value="">Default</option>
+                {candidatePoolTopKOptions.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                Ranking Evaluation TopK
+              </span>
+              <select
+                value={rankingEvaluationTopK}
+                onChange={(event) =>
+                  setRankingEvaluationTopK(event.target.value)
+                }
+                disabled={running}
+                className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950/70 px-3 py-3 text-sm text-slate-100 outline-none transition hover:border-white/20 focus:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <option value="">Default</option>
+                {rankingEvaluationTopKOptions.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           {error && (
             <div className="mt-6 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">
               {error}
@@ -237,76 +298,54 @@ export default function EvaluatePage() {
 
         {payload && (
           <>
-            <section className="grid gap-4 md:grid-cols-4">
-              {[
-                ["Query count", payload.summary.query_count],
-                ["Precision@K", payload.summary.precision_at_k.toFixed(4)],
-                ["Recall@K", payload.summary.recall_at_k.toFixed(4)],
-                ["MRR", payload.summary.mrr.toFixed(4)],
-              ].map(([label, value]) => (
-                <div
-                  key={label as string}
-                  className="rounded-3xl border border-white/10 bg-slate-900/70 p-5"
-                >
-                  <div className="text-xs uppercase tracking-[0.25em] text-slate-400">
-                    {label}
-                  </div>
-                  <div className="mt-3 text-2xl font-semibold">
-                    <span
-                      className="cursor-help"
-                      title={
-                        label === "Precision@K"
-                          ? [
-                              `Precision@K = (1/N) * Σ_i Precision_i`,
-                              `= ${payload.summary.precision_at_k.toFixed(4)}`,
-                              `取值范围: [0, 1]`,
-                            ].join("\n")
-                          : label === "Recall@K"
-                            ? [
-                                `Recall@K = (1/N) * Σ_i Recall_i`,
-                                `= ${payload.summary.recall_at_k.toFixed(4)}`,
-                                `取值范围: [0, 1]`,
-                              ].join("\n")
-                            : [
-                                `MRR = (1/N) * Σ_i (1 / rank_i)`,
-                                `= ${payload.summary.mrr.toFixed(4)}`,
-                                `取值范围: [0, 1]`,
-                              ].join("\n")
-                      }
-                    >
-                      {value as string}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </section>
-
             {!!stageAggregateRows.length && (
               <section className="rounded-3xl border border-white/10 bg-white/5 p-5 shadow-lg shadow-black/20">
                 <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
                   <div>
-                    <div className="text-sm font-semibold text-white">Stage averages</div>
-                    <div className="mt-1 text-xs text-slate-400">Mean metrics across all queries for each retrieval stage.</div>
+                    <div className="text-sm font-semibold text-white">
+                      Stage averages
+                    </div>
+                    <div className="mt-1 text-xs text-slate-400">
+                      Mean metrics across all queries for each retrieval stage.
+                    </div>
                   </div>
-                  <div className="text-xs text-slate-500">Precision / Recall / MRR</div>
+                  <div className="text-xs text-slate-500">
+                    Precision / Recall / MRR
+                  </div>
                 </div>
                 <div className="mt-4 overflow-x-auto">
                   <table className="min-w-full border-separate border-spacing-0 text-sm">
                     <thead>
                       <tr className="text-left text-xs uppercase tracking-[0.2em] text-slate-400">
-                        <th className="border-b border-white/10 px-4 py-3">Stage</th>
-                        <th className="border-b border-white/10 px-4 py-3">Precision</th>
-                        <th className="border-b border-white/10 px-4 py-3">Recall</th>
-                        <th className="border-b border-white/10 px-4 py-3">MRR</th>
+                        <th className="border-b border-white/10 px-4 py-3">
+                          Stage
+                        </th>
+                        <th className="border-b border-white/10 px-4 py-3">
+                          Precision
+                        </th>
+                        <th className="border-b border-white/10 px-4 py-3">
+                          Recall
+                        </th>
+                        <th className="border-b border-white/10 px-4 py-3">
+                          MRR
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {stageAggregateRows.map((row) => (
                         <tr key={row.stage} className="text-slate-100">
-                          <td className="border-b border-white/5 px-4 py-3 font-medium">{row.stage.toUpperCase()}</td>
-                          <td className="border-b border-white/5 px-4 py-3">{row.precision.toFixed(4)}</td>
-                          <td className="border-b border-white/5 px-4 py-3">{row.recall.toFixed(4)}</td>
-                          <td className="border-b border-white/5 px-4 py-3">{row.mrr.toFixed(4)}</td>
+                          <td className="border-b border-white/5 px-4 py-3 font-medium">
+                            {row.stage.toUpperCase()}
+                          </td>
+                          <td className="border-b border-white/5 px-4 py-3">
+                            {row.precision.toFixed(4)}
+                          </td>
+                          <td className="border-b border-white/5 px-4 py-3">
+                            {row.recall.toFixed(4)}
+                          </td>
+                          <td className="border-b border-white/5 px-4 py-3">
+                            {row.mrr.toFixed(4)}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -402,7 +441,7 @@ export default function EvaluatePage() {
                             </span>
                           </div>
                         </div>
-                        <div className="grid grid-cols-3 gap-2 text-sm">
+                        {/* <div className="grid grid-cols-3 gap-2 text-sm">
                           <div className="rounded-2xl border border-cyan-400/40 bg-cyan-400/10 px-4 py-3 text-center">
                             <div className="text-[11px] uppercase tracking-[0.25em] text-cyan-200">
                               Precision@K
@@ -450,7 +489,7 @@ export default function EvaluatePage() {
                               {item.mrr.toFixed(4)}
                             </div>
                           </div>
-                        </div>
+                        </div> */}
                       </div>
 
                       <div className="mt-5 grid gap-5">

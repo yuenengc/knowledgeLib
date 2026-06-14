@@ -26,6 +26,17 @@ STAGE_TOP_K = {
 }
 
 
+def _stage_top_k(options: EvaluationOptions) -> dict[str, int]:
+    values = dict(STAGE_TOP_K)
+    if options.candidate_pool_top_k is not None:
+        values["vector"] = options.candidate_pool_top_k
+        values["bm25"] = options.candidate_pool_top_k
+        values["rrf"] = options.candidate_pool_top_k
+    if options.ranking_evaluation_top_k is not None:
+        values["rerank"] = options.ranking_evaluation_top_k
+    return values
+
+
 @dataclass
 class QueryEvalResult:
     id: str
@@ -91,7 +102,7 @@ class FuzzyFragmentEvaluator:
                 "mrr": mrr,
                 "threshold": options.threshold,
                 "elapsed_seconds": elapsed,
-                "stage_top_k": STAGE_TOP_K,
+                "stage_top_k": _stage_top_k(options),
             },
             "details": [asdict(d) for d in details],
         }
@@ -103,7 +114,12 @@ class FuzzyFragmentEvaluator:
         options: EvaluationOptions,
     ) -> QueryEvalResult:
         top_k = options.top_k or SEARCH_LLM_TOP_K
-        output = target.run_query(item["query"], top_k=top_k)
+        output = target.run_query(
+            item["query"],
+            top_k=top_k,
+            candidate_pool_top_k=options.candidate_pool_top_k,
+            ranking_evaluation_top_k=options.ranking_evaluation_top_k,
+        )
         results = output.results
 
         final_k = min(len(results), top_k)
@@ -141,6 +157,7 @@ class FuzzyFragmentEvaluator:
                 list(item.get("golden_fragments", [])),
                 relevant_count,
                 options.threshold,
+                _stage_top_k(options),
             )
 
         return QueryEvalResult(
@@ -180,12 +197,13 @@ class FuzzyFragmentEvaluator:
         golden_fragments: list[str],
         relevant_count: int,
         threshold: float,
+        stage_top_k: dict[str, int],
     ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, float]]]:
         stages_payload = {}
         stage_metrics: dict[str, dict[str, float]] = {}
         for stage, items in stage_results.items():
             stages_payload[stage] = []
-            stage_k = STAGE_TOP_K.get(stage, len(items))
+            stage_k = stage_top_k.get(stage, len(items))
             stage_retrieved = min(len(items), stage_k)
             stage_matched_count = 0
             stage_first_match_rank = None

@@ -48,6 +48,8 @@ _BM25_CACHE: dict[str, object] = {
 
 class SearchState(TypedDict):
     query: str
+    candidate_pool_top_k: int | None
+    ranking_evaluation_top_k: int | None
     results: List[dict]
     stage_results: dict
 
@@ -281,6 +283,14 @@ def build_search_graph(index: VectorStoreIndex):
         query = state["query"]
         prefix = get_embed_query_prefix()
         vector_query = f"{prefix}{query}" if prefix else query
+        candidate_pool_top_k = state.get("candidate_pool_top_k")
+        ranking_evaluation_top_k = state.get("ranking_evaluation_top_k")
+
+        vector_top_k = candidate_pool_top_k or SEARCH_VECTOR_TOP_K
+        bm25_top_k = candidate_pool_top_k or SEARCH_BM25_TOP_K
+        rrf_top_k = candidate_pool_top_k or SEARCH_RRF_TOP_K
+        rerank_top_k = ranking_evaluation_top_k or SEARCH_RERANK_TOP_K
+        llm_top_k = state.get("top_k") or SEARCH_LLM_TOP_K
 
         def _unwrap_vector_node(obj):
             # llama-index retrievers typically return NodeWithScore(node=..., score=float).
@@ -305,14 +315,18 @@ def build_search_graph(index: VectorStoreIndex):
             return text.strip() if isinstance(text, str) and text.strip() else ""
 
         logger.info(
-            LOG_PREFIX + "[retrieve] query=%s vector_query=%s llm_top_k=%s",
+            LOG_PREFIX + "[retrieve] query=%s vector_query=%s vector_top_k=%s bm25_top_k=%s rrf_top_k=%s rerank_top_k=%s llm_top_k=%s",
             query,
             vector_query,
-            SEARCH_LLM_TOP_K,
+            vector_top_k,
+            bm25_top_k,
+            rrf_top_k,
+            rerank_top_k,
+            llm_top_k,
         )
 
         stage_t0 = time.perf_counter()
-        retriever = index.as_retriever(similarity_top_k=max(SEARCH_VECTOR_TOP_K, 5))
+        retriever = index.as_retriever(similarity_top_k=max(vector_top_k, 5))
         vector_nodes = retriever.retrieve(vector_query)
         logger.info(LOG_PREFIX + "[timing.retrieve] vector_retrieve_ms=%.1f raw_count=%s", (time.perf_counter() - stage_t0) * 1000, len(vector_nodes))
 
@@ -323,13 +337,13 @@ def build_search_graph(index: VectorStoreIndex):
         if bm25 is not None:
             stage_t0 = time.perf_counter()
             scores = bm25.get_scores(_tokenize(query))
-            bm25_ranked = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)[:SEARCH_BM25_TOP_K]
+            bm25_ranked = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)[:bm25_top_k]
             logger.info(LOG_PREFIX + "[timing.retrieve] bm25_score_sort_ms=%.1f ranked=%s", (time.perf_counter() - stage_t0) * 1000, len(bm25_ranked))
 
         # Log raw hits: vector vs keyword (BM25)
         logger.info(LOG_PREFIX + "[hits.vector] count=%s", len(vector_nodes))
         vector_stage_results: List[dict] = []
-        for i, obj in enumerate(vector_nodes[:SEARCH_VECTOR_TOP_K], start=1):
+        for i, obj in enumerate(vector_nodes[:vector_top_k], start=1):
             base, score = _unwrap_vector_node(obj)
             meta = _metadata(base)
             item = {
@@ -350,7 +364,7 @@ def build_search_graph(index: VectorStoreIndex):
 
         logger.info(LOG_PREFIX + "[hits.bm25] count=%s", len(bm25_ranked))
         bm25_stage_results: List[dict] = []
-        for i, (idx, score) in enumerate(bm25_ranked[:SEARCH_BM25_TOP_K], start=1):
+        for i, (idx, score) in enumerate(bm25_ranked[:bm25_top_k], start=1):
             item = bm25_nodes[idx]
             stage_item = {
                 "score": float(score),
@@ -369,7 +383,7 @@ def build_search_graph(index: VectorStoreIndex):
         fused: Dict[str, dict] = {}
 
         stage_t0 = time.perf_counter()
-        for rank, obj in enumerate(vector_nodes, start=1):
+        for rank, obj in enumerate(vector_nodes[:vector_top_k], start=1):
             base, _score = _unwrap_vector_node(obj)
             metadata = _metadata(base)
             source_chunk_id = _node_id(base)
@@ -407,7 +421,7 @@ def build_search_graph(index: VectorStoreIndex):
             )
             item["score"] += 1.0 / (RRF_K + rank)
 
-        rrf_candidates = sorted(fused.values(), key=lambda x: x["score"], reverse=True)[:SEARCH_RRF_TOP_K]
+        rrf_candidates = sorted(fused.values(), key=lambda x: x["score"], reverse=True)[:rrf_top_k]
         logger.info(LOG_PREFIX + "[timing.retrieve] rrf_fusion_ms=%.1f candidates=%s", (time.perf_counter() - stage_t0) * 1000, len(rrf_candidates))
 
         logger.info(LOG_PREFIX + "[hits.rrf] count=%s", len(rrf_candidates))
@@ -434,16 +448,17 @@ def build_search_graph(index: VectorStoreIndex):
             reranked = sorted(scored, key=lambda x: x["rerank_score"], reverse=True)
             reranked = [item for item in reranked if item["rerank_score"] >= SEARCH_RERANK_THRESHOLD]
 
-        logger.info(LOG_PREFIX + "[hits.rerank] count=%s", len(reranked))
-        rerank_stage_results = [dict(item) for item in reranked]
-        for i, item in enumerate(reranked, start=1):
+        rerank_candidates = reranked[:rerank_top_k]
+        logger.info(LOG_PREFIX + "[hits.rerank] count=%s", len(rerank_candidates))
+        rerank_stage_results = [dict(item) for item in rerank_candidates]
+        for i, item in enumerate(rerank_candidates, start=1):
             _log_hit("rerank", i, item)
 
         stage_t0 = time.perf_counter()
-        merged = _merge_results(reranked[:SEARCH_RERANK_TOP_K])
+        merged = _merge_results(rerank_candidates)
         logger.info(LOG_PREFIX + "[timing.retrieve] merge_ms=%.1f merged=%s", (time.perf_counter() - stage_t0) * 1000, len(merged))
 
-        llm_results = merged[:SEARCH_LLM_TOP_K]
+        llm_results = merged[:llm_top_k]
         try:
             llm_results = _expand_to_parent_results(llm_results)
             logger.info(LOG_PREFIX + "[hits.llm] count=%s", len(llm_results))

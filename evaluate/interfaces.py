@@ -11,6 +11,8 @@ SearchHit = dict[str, Any]
 class EvaluationOptions:
     threshold: float = 0.85
     top_k: int | None = None
+    candidate_pool_top_k: int | None = None
+    ranking_evaluation_top_k: int | None = None
     include_stage_metrics: bool = True
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -25,7 +27,13 @@ class EvaluationRunOutput:
 class EvaluationTarget(Protocol):
     name: str
 
-    def run_query(self, query: str, top_k: int) -> EvaluationRunOutput:
+    def run_query(
+        self,
+        query: str,
+        top_k: int,
+        candidate_pool_top_k: int | None = None,
+        ranking_evaluation_top_k: int | None = None,
+    ) -> EvaluationRunOutput:
         ...
 
 
